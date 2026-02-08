@@ -8,6 +8,7 @@
 bool AActor::HasAuthority()
 {
 	static auto RoleOffset = GetOffset("Role");
+
 	return Get<uint8_t>(RoleOffset) == 3;
 }
 
