@@ -100,10 +100,9 @@ private:
     NodeConfig m_config;
     HWND m_consoleWindow;
     
-    // Node.js runtime handles (opaque pointers)
+    // Node.js runtime handles
     void* m_platform;  // node::MultiIsolatePlatform*
     void* m_isolate;   // v8::Isolate*
-    void* m_context;   // v8::Local<v8::Context>
     void* m_env;       // node::Environment*
 };
 

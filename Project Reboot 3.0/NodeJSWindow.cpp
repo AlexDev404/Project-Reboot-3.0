@@ -8,14 +8,17 @@
 #include "NodeJSWindow.h"
 #include "log.h"
 #include <iostream>
+#include <fstream>
+#include <sstream>
 
 // Node.js embedding headers
-// Note: These would be included from the libnode distribution
-// For now, we'll use forward declarations and dynamic loading
-#ifdef ENABLE_LIBNODE
 #include <node.h>
+#include <node_platform.h>
+#include <v8.h>
 #include <uv.h>
-#endif
+
+// Link against node.lib
+#pragma comment(lib, "node.lib")
 
 namespace NodeJS {
 
@@ -128,96 +131,145 @@ bool NodeJSWindow::createConsoleWindow() {
 }
 
 bool NodeJSWindow::initializeNodeRuntime() {
-#ifdef ENABLE_LIBNODE
-    LOG_INFO(LogDev, "[NodeJS] Initializing libnode runtime...");
+    LOG_INFO(LogDev, "[NodeJS] Initializing Node.js 22.22.0 runtime...");
 
-    // Verify Node.js version is 22.22.0
-    // In a real implementation, this would check NODE_VERSION_STRING
-    // const char* nodeVersion = node::GetVersion();
-    // if (strcmp(nodeVersion, "v22.22.0") != 0) {
-    //     LOG_ERROR(LogDev, "[NodeJS] Incorrect Node.js version: {}. Required: v22.22.0", nodeVersion);
-    //     return false;
-    // }
-    
-    // Initialize Node.js platform
-    // In a real implementation, this would use node::InitializeNodePlatform()
-    // and create an isolate with node::NewIsolate()
-    
-    // Example (pseudo-code, actual implementation depends on libnode version):
-    // 
-    // std::vector<std::string> args = { "node", m_config.entryPoint };
-    // std::vector<std::string> exec_args;
-    // 
-    // m_platform = node::InitializeNodePlatform(4); // 4 threads
-    // m_isolate = node::NewIsolate(m_platform);
-    // 
-    // v8::Isolate::Scope isolate_scope(m_isolate);
-    // v8::HandleScope handle_scope(m_isolate);
-    // 
-    // v8::Local<v8::Context> context = node::NewContext(m_isolate);
-    // m_context = context;
-    // 
-    // node::Environment* env = node::CreateEnvironment(
-    //     m_isolate, context, args, exec_args);
-    // m_env = env;
-
-    LOG_INFO(LogDev, "[NodeJS] libnode runtime initialized");
-    return true;
-#else
-    LOG_WARN(LogDev, "[NodeJS] libnode support not compiled in, running in mock mode");
-    
-    // Mock mode - just print messages to console
-    std::cout << "========================================" << std::endl;
-    std::cout << " Icarus Node.js Runtime (Mock Mode)" << std::endl;
-    std::cout << "========================================" << std::endl;
-    std::cout << "Entry Point: " << m_config.entryPoint << std::endl;
-    std::cout << std::endl;
-    std::cout << "libnode is not available in this build." << std::endl;
-    std::cout << "To enable Node.js support:" << std::endl;
-    std::cout << "1. Download Node.js 22.22.0 from:" << std::endl;
-    std::cout << "   https://nodejs.org/download/release/v22.22.0/" << std::endl;
-    std::cout << "2. Place node-v22.22.0-win-x64.zip contents in vendor/libnode/" << std::endl;
-    std::cout << "3. Rebuild with ENABLE_LIBNODE defined" << std::endl;
-    std::cout << std::endl;
-    std::cout << "IMPORTANT: Only Node.js 22.22.0 is supported." << std::endl;
-    std::cout << "========================================" << std::endl;
-    
-    return true;
-#endif
+    try {
+        // Initialize V8 platform
+        int argc = 1;
+        const char* argv[] = { "node" };
+        
+        std::vector<std::string> args(argv, argv + argc);
+        std::vector<std::string> exec_args;
+        std::vector<std::string> errors;
+        
+        // Setup Node.js initialization parameters
+        node::InitializationResult result = node::InitializeOncePerProcess(args, {
+            node::ProcessInitializationFlags::kNoInitializeV8,
+            node::ProcessInitializationFlags::kNoInitializeNodeV8Platform
+        });
+        
+        if (result.early_return) {
+            LOG_ERROR(LogDev, "[NodeJS] Node.js initialization returned early");
+            return false;
+        }
+        
+        if (result.exit_code != 0) {
+            LOG_ERROR(LogDev, "[NodeJS] Node.js initialization failed with code: {}", result.exit_code);
+            return false;
+        }
+        
+        // Create the Node.js platform
+        m_platform = node::MultiIsolatePlatform::Create(4);
+        v8::V8::InitializePlatform(static_cast<node::MultiIsolatePlatform*>(m_platform));
+        v8::V8::Initialize();
+        
+        // Create isolate
+        v8::Isolate::CreateParams create_params;
+        create_params.array_buffer_allocator = node::CreateArrayBufferAllocator();
+        
+        v8::Isolate* isolate = v8::Isolate::New(create_params);
+        m_isolate = isolate;
+        
+        if (!isolate) {
+            LOG_ERROR(LogDev, "[NodeJS] Failed to create V8 isolate");
+            return false;
+        }
+        
+        // Enter isolate
+        v8::Isolate::Scope isolate_scope(isolate);
+        v8::HandleScope handle_scope(isolate);
+        
+        // Create context
+        v8::Local<v8::Context> context = node::NewContext(isolate);
+        if (context.IsEmpty()) {
+            LOG_ERROR(LogDev, "[NodeJS] Failed to create V8 context");
+            return false;
+        }
+        
+        v8::Context::Scope context_scope(context);
+        
+        // Create Node.js environment
+        node::Environment* env = node::CreateEnvironment(
+            node::GetCurrentEnvironment(context),
+            context,
+            args,
+            exec_args
+        );
+        
+        m_env = env;
+        
+        if (!env) {
+            LOG_ERROR(LogDev, "[NodeJS] Failed to create Node.js environment");
+            return false;
+        }
+        
+        LOG_INFO(LogDev, "[NodeJS] Node.js 22.22.0 runtime initialized successfully");
+        LOG_INFO(LogDev, "[NodeJS] V8 version: {}", v8::V8::GetVersion());
+        
+        return true;
+        
+    } catch (const std::exception& e) {
+        LOG_ERROR(LogDev, "[NodeJS] Exception during initialization: {}", e.what());
+        return false;
+    } catch (...) {
+        LOG_ERROR(LogDev, "[NodeJS] Unknown exception during initialization");
+        return false;
+    }
 }
 
 void NodeJSWindow::runEventLoop() {
-#ifdef ENABLE_LIBNODE
-    LOG_INFO(LogDev, "[NodeJS] Starting event loop...");
-
-    // Run the Node.js event loop
-    // In a real implementation:
-    // 
-    // v8::Isolate::Scope isolate_scope(m_isolate);
-    // v8::HandleScope handle_scope(m_isolate);
-    // v8::Context::Scope context_scope(m_context);
-    // 
-    // node::LoadEnvironment(m_env, 
-    //     "const publicRequire = require('module').createRequire(process.cwd() + '/');"
-    //     "globalThis.require = publicRequire;"
-    // );
-    // 
-    // // Run event loop until UV_RUN_DEFAULT returns false
-    // do {
-    //     uv_run(env->event_loop(), UV_RUN_DEFAULT);
-    //     // Process other platform tasks
-    //     platform->DrainTasks(isolate);
-    // } while (!m_running && more_tasks);
+    LOG_INFO(LogDev, "[NodeJS] Starting Node.js event loop...");
     
-    LOG_INFO(LogDev, "[NodeJS] Event loop started");
-#else
-    LOG_INFO(LogDev, "[NodeJS] Mock event loop - waiting for shutdown...");
+    v8::Isolate* isolate = static_cast<v8::Isolate*>(m_isolate);
+    node::Environment* env = static_cast<node::Environment*>(m_env);
     
-    // In mock mode, just wait until shutdown is requested
-    while (m_running) {
-        Sleep(100);
+    if (!isolate || !env) {
+        LOG_ERROR(LogDev, "[NodeJS] Invalid isolate or environment");
+        return;
     }
-#endif
+    
+    try {
+        v8::Isolate::Scope isolate_scope(isolate);
+        v8::HandleScope handle_scope(isolate);
+        v8::Context::Scope context_scope(env->context());
+        
+        // Load environment (this runs the entry point)
+        node::LoadEnvironment(
+            env,
+            "const publicRequire = require('module').createRequire(process.cwd() + '/');"
+            "globalThis.require = publicRequire;"
+        );
+        
+        // Run the event loop
+        uv_loop_t* loop = env->event_loop();
+        node::MultiIsolatePlatform* platform = static_cast<node::MultiIsolatePlatform*>(m_platform);
+        
+        LOG_INFO(LogDev, "[NodeJS] Event loop started");
+        
+        while (m_running) {
+            // Run one iteration of the event loop
+            uv_run(loop, UV_RUN_ONCE);
+            
+            // Process V8 platform tasks
+            if (platform) {
+                platform->DrainTasks(isolate);
+            }
+            
+            // Check if there's more work
+            bool has_more_work = uv_loop_alive(loop);
+            if (!has_more_work) {
+                // Keep alive for a bit more
+                Sleep(100);
+            }
+        }
+        
+        LOG_INFO(LogDev, "[NodeJS] Event loop stopped");
+        
+    } catch (const std::exception& e) {
+        LOG_ERROR(LogDev, "[NodeJS] Exception in event loop: {}", e.what());
+    } catch (...) {
+        LOG_ERROR(LogDev, "[NodeJS] Unknown exception in event loop");
+    }
 }
 
 void NodeJSWindow::nodeThreadFunc() {
@@ -240,18 +292,34 @@ void NodeJSWindow::nodeThreadFunc() {
         // Run the event loop
         runEventLoop();
 
-#ifdef ENABLE_LIBNODE
         // Cleanup
-        if (m_env) {
-            // node::FreeEnvironment(m_env);
+        node::Environment* env = static_cast<node::Environment*>(m_env);
+        v8::Isolate* isolate = static_cast<v8::Isolate*>(m_isolate);
+        node::MultiIsolatePlatform* platform = static_cast<node::MultiIsolatePlatform*>(m_platform);
+        
+        if (env) {
+            node::FreeEnvironment(env);
             m_env = nullptr;
         }
         
-        if (m_isolate) {
-            // m_isolate->Dispose();
+        if (isolate) {
+            bool platform_finished = false;
+            if (platform) {
+                platform->DrainTasks(isolate);
+                platform->CancelPendingDelayedTasks(isolate);
+                platform->UnregisterIsolate(isolate);
+            }
+            
+            isolate->Dispose();
             m_isolate = nullptr;
         }
-#endif
+        
+        if (platform) {
+            v8::V8::Dispose();
+            v8::V8::DisposePlatform();
+            delete platform;
+            m_platform = nullptr;
+        }
 
     } catch (const std::exception& e) {
         LOG_ERROR(LogDev, "[NodeJS] Exception in Node.js thread: {}", e.what());
@@ -267,23 +335,33 @@ int NodeJSWindow::executeCode(const std::string& code) {
         return 1;
     }
 
-#ifdef ENABLE_LIBNODE
-    // In real implementation:
-    // v8::Isolate::Scope isolate_scope(m_isolate);
-    // v8::HandleScope handle_scope(m_isolate);
-    // v8::Context::Scope context_scope(m_context);
-    // 
-    // v8::Local<v8::String> source = v8::String::NewFromUtf8(m_isolate, code.c_str());
-    // v8::Local<v8::Script> script = v8::Script::Compile(m_context, source).ToLocalChecked();
-    // v8::Local<v8::Value> result = script->Run(m_context).ToLocalChecked();
+    v8::Isolate* isolate = static_cast<v8::Isolate*>(m_isolate);
+    node::Environment* env = static_cast<node::Environment*>(m_env);
     
-    LOG_INFO(LogDev, "[NodeJS] Executed code: {}", code.substr(0, 50));
-    return 0;
-#else
-    LOG_INFO(LogDev, "[NodeJS] Mock execute: {}", code.substr(0, 50));
-    std::cout << "[Mock] Execute: " << code << std::endl;
-    return 0;
-#endif
+    if (!isolate || !env) {
+        LOG_ERROR(LogDev, "[NodeJS] Invalid isolate or environment");
+        return 1;
+    }
+    
+    try {
+        v8::Isolate::Scope isolate_scope(isolate);
+        v8::HandleScope handle_scope(isolate);
+        v8::Context::Scope context_scope(env->context());
+        
+        v8::Local<v8::String> source = v8::String::NewFromUtf8(
+            isolate, code.c_str(), v8::NewStringType::kNormal, code.length()
+        ).ToLocalChecked();
+        
+        v8::Local<v8::Script> script = v8::Script::Compile(env->context(), source).ToLocalChecked();
+        v8::Local<v8::Value> result = script->Run(env->context()).ToLocalChecked();
+        
+        LOG_INFO(LogDev, "[NodeJS] Executed code: {}", code.substr(0, 50));
+        return 0;
+        
+    } catch (const std::exception& e) {
+        LOG_ERROR(LogDev, "[NodeJS] Exception executing code: {}", e.what());
+        return 1;
+    }
 }
 
 bool NodeJSWindow::loadModule(const std::string& modulePath) {
@@ -294,17 +372,46 @@ bool NodeJSWindow::loadModule(const std::string& modulePath) {
 
     LOG_INFO(LogDev, "[NodeJS] Loading module: {}", modulePath);
 
-#ifdef ENABLE_LIBNODE
-    // In real implementation:
-    // std::string code = "require('" + modulePath + "');";
-    // return executeCode(code) == 0;
+    v8::Isolate* isolate = static_cast<v8::Isolate*>(m_isolate);
+    node::Environment* env = static_cast<node::Environment*>(m_env);
     
-    return true;
-#else
-    std::cout << "[Mock] Loading module: " << modulePath << std::endl;
-    std::cout << "Module would be loaded here if libnode was available." << std::endl;
-    return true;
-#endif
+    if (!isolate || !env) {
+        LOG_ERROR(LogDev, "[NodeJS] Invalid isolate or environment");
+        return false;
+    }
+    
+    try {
+        // Read module file
+        std::ifstream file(modulePath);
+        if (!file.is_open()) {
+            LOG_ERROR(LogDev, "[NodeJS] Failed to open module: {}", modulePath);
+            return false;
+        }
+        
+        std::stringstream buffer;
+        buffer << file.rdbuf();
+        std::string code = buffer.str();
+        file.close();
+        
+        // Execute the module code
+        v8::Isolate::Scope isolate_scope(isolate);
+        v8::HandleScope handle_scope(isolate);
+        v8::Context::Scope context_scope(env->context());
+        
+        v8::Local<v8::String> source = v8::String::NewFromUtf8(
+            isolate, code.c_str(), v8::NewStringType::kNormal, code.length()
+        ).ToLocalChecked();
+        
+        v8::Local<v8::Script> script = v8::Script::Compile(env->context(), source).ToLocalChecked();
+        v8::Local<v8::Value> result = script->Run(env->context()).ToLocalChecked();
+        
+        LOG_INFO(LogDev, "[NodeJS] Module loaded successfully: {}", modulePath);
+        return true;
+        
+    } catch (const std::exception& e) {
+        LOG_ERROR(LogDev, "[NodeJS] Exception loading module: {}", e.what());
+        return false;
+    }
 }
 
 // ============================================================================

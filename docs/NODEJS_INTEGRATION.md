@@ -4,11 +4,17 @@ This directory contains the libnode integration that enables running JavaScript/
 
 ## Overview
 
-The NodeJSWindow class embeds a Node.js runtime into the DLL and creates a separate console window where JavaScript code can run. This allows the Icarus JavaScript bindings to execute in a full Node.js environment with access to:
+The NodeJSWindow class embeds Node.js 22.22.0 runtime into the DLL and creates a separate console window where JavaScript code can run. This allows the Icarus JavaScript bindings to execute in a full Node.js environment with access to:
 
 - All Node.js built-in modules (fs, path, http, etc.)
 - npm packages installed in the project
 - Native C++ bindings through the `@trail-blaze/icarus-addon` package
+
+## Requirements
+
+**Node.js 22.22.0 is required** to build and run this project. You must set up libnode before building.
+
+See [LIBNODE_SETUP.md](../../../docs/LIBNODE_SETUP.md) or [NODE_22_22_SETUP.md](../../../docs/NODE_22_22_SETUP.md) for setup instructions.
 
 ## Architecture
 
@@ -23,7 +29,7 @@ The NodeJSWindow class embeds a Node.js runtime into the DLL and creates a separ
 │  │  │  Main Thread    │    │  Node.js Thread       │  │ │
 │  │  │  (Game Hooks)   │◄───┤  (Separate Window)   │  │ │
 │  │  │                 │    │                       │  │ │
-│  │  │  - Hook game    │    │  - Run JS modules     │  │ │
+│  │  │  - Hook game    │    │  - V8 JavaScript      │  │ │
 │  │  │    functions    │    │  - Icarus bindings    │  │ │
 │  │  │  - Handle       │    │  - Event loop         │  │ │
 │  │  │    network      │    │  - Console I/O        │  │ │
@@ -83,63 +89,35 @@ NodeJS::shutdownNodeJS();
 
 ## Building with libnode
 
-### Current Status: Mock Mode
+### Setup Required
 
-The current implementation runs in **mock mode**, which means:
-- A console window is created and shows status messages
-- No actual Node.js runtime is embedded (yet)
-- All API calls are simulated and logged
-
-### Enabling Full libnode Support
-
-To enable actual Node.js embedding:
+The Node.js 22.22.0 runtime is fully integrated into the code. **You must install libnode files before building.**
 
 1. **Download libnode**:
-   - Get Node.js 22.22.0 specifically from [nodejs.org/download/release/v22.22.0/](https://nodejs.org/download/release/v22.22.0/)
-   - **Important**: Only version 22.22.0 is supported. Do not use other versions.
-   - Download the Windows x64 package: `node-v22.22.0-win-x64.zip`
+   - Get Node.js 22.22.0 from [nodejs.org/download/release/v22.22.0/](https://nodejs.org/download/release/v22.22.0/)
+   - Download: `node-v22.22.0-win-x64.zip`
 
 2. **Place files in vendor directory**:
    ```
    vendor/
      libnode/
-       include/
+       include/node/
          node.h
-         uv.h
          v8.h
+         uv.h
          (other headers...)
        lib/
-         libnode.lib  (or node.lib on Windows)
+         node.lib
    ```
 
-3. **Update the project**:
-   - Add `ENABLE_LIBNODE` preprocessor definition to vcxproj
-   - Add include path: `vendor/libnode/include`
-   - Add library path: `vendor/libnode/lib`
-   - Link against `libnode.lib`
-
-4. **Rebuild**:
+3. **Build the project**:
+   The vcxproj is already configured with the correct paths and link settings.
    ```bash
-   # Open Project Reboot 3.0.sln in Visual Studio
+   # Open Project Reboot 3.0.sln in Visual Studio 2022
    # Build > Rebuild Solution
    ```
 
-### vcxproj Changes Needed
-
-Add to the Release configuration:
-
-```xml
-<ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-  <ClCompile>
-    <PreprocessorDefinitions>ENABLE_LIBNODE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-    <AdditionalIncludeDirectories>../vendor/libnode/include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-  </ClCompile>
-  <Link>
-    <AdditionalLibraryDirectories>../vendor/libnode/lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-    <AdditionalDependencies>libnode.lib;%(AdditionalDependencies)</AdditionalDependencies>
-  </Link>
-</ItemDefinitionGroup>
-```
+See [NODE_22_22_SETUP.md](./NODE_22_22_SETUP.md) for detailed setup instructions with screenshots.
 
 ## Entry Point (main.js)
 
@@ -182,20 +160,27 @@ setInterval(() => {}, 60000);
 
 ### Console Window Doesn't Appear
 
-- Check that `showConsole` is set to `true` in the config
-- Verify the DLL is actually being loaded
+- Verify the DLL is being loaded into the game process
 - Check the Project Reboot logs for initialization errors
+- Ensure the working directory is correct
 
-### "libnode support not compiled in" Message
+### Build Errors: "Cannot open include file: 'node.h'"
 
-- This is expected in mock mode
-- Follow the "Enabling Full libnode Support" steps above to add actual Node.js
+- Verify `vendor/libnode/include/node/` contains the Node.js headers
+- Check that the include paths are correct in vcxproj
+- Make sure you downloaded Node.js 22.22.0 specifically
 
-### JavaScript Code Not Executing
+### Linker Errors: "unresolved external symbol"
 
-- Ensure the entry point file exists at the specified path
-- Check the console window for JavaScript errors
-- Verify the event loop is running (should see heartbeat in logs)
+- Verify `vendor/libnode/lib/node.lib` exists
+- Check that you're building for x64 (not x86)
+- Ensure node.lib is from Node.js 22.22.0
+
+### Runtime Error: Node.js Crashes on Startup
+
+- Ensure all Node.js DLLs are in the correct location
+- Verify Node.js version is exactly 22.22.0
+- Check logs for specific initialization errors
 
 ## Future Enhancements
 
