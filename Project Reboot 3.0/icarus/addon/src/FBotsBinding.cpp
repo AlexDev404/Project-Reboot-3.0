@@ -37,14 +37,23 @@ Napi::Value FBotsBinding::Spawn(const Napi::CallbackInfo& info) {
                 Napi::Value locationVal = options.Get("location").Unwrap();
                 if (locationVal.IsObject()) {
                     Napi::Object loc = locationVal.As<Napi::Object>();
-                    if (loc.Has("x") && loc.Get("x").Unwrap().IsNumber()) {
-                        x = loc.Get("x").Unwrap().As<Napi::Number>().DoubleValue();
+                    if (loc.Has("x")) {
+                        Napi::Value xVal = loc.Get("x").Unwrap();
+                        if (xVal.IsNumber()) {
+                            x = xVal.As<Napi::Number>().DoubleValue();
+                        }
                     }
-                    if (loc.Has("y") && loc.Get("y").Unwrap().IsNumber()) {
-                        y = loc.Get("y").Unwrap().As<Napi::Number>().DoubleValue();
+                    if (loc.Has("y")) {
+                        Napi::Value yVal = loc.Get("y").Unwrap();
+                        if (yVal.IsNumber()) {
+                            y = yVal.As<Napi::Number>().DoubleValue();
+                        }
                     }
-                    if (loc.Has("z") && loc.Get("z").Unwrap().IsNumber()) {
-                        z = loc.Get("z").Unwrap().As<Napi::Number>().DoubleValue();
+                    if (loc.Has("z")) {
+                        Napi::Value zVal = loc.Get("z").Unwrap();
+                        if (zVal.IsNumber()) {
+                            z = zVal.As<Napi::Number>().DoubleValue();
+                        }
                     }
                 }
             }
