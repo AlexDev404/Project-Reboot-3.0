@@ -9,6 +9,9 @@ Welcome to the Project Reboot 3.0 documentation. This documentation is organized
 | [Architecture Guide](./ARCHITECTURE.md) | Technical deep-dive into the codebase | Maintainers & Contributors |
 | [User Guide](./USER_GUIDE.md) | How to build, configure, and run the server | End Users |
 | [Icarus SDK](./ICARUS_SDK.md) | JavaScript/TypeScript module development | Module Developers |
+| [Node.js 22.22 Setup](./NODE_22_22_SETUP.md) | Quick start for Node.js 22.22 installation | All Users |
+| [libnode Setup Guide](./LIBNODE_SETUP.md) | Detailed Node.js embedding setup | Advanced Users |
+| [Node.js Integration](./NODEJS_INTEGRATION.md) | Architecture and technical details | Maintainers |
 
 ## What is Project Reboot?
 

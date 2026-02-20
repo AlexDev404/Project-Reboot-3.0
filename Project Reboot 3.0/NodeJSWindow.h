@@ -18,6 +18,12 @@
 
 namespace NodeJS {
 
+// Required Node.js version
+constexpr const char* REQUIRED_NODE_VERSION = "v22.22.0";
+constexpr int REQUIRED_NODE_MAJOR = 22;
+constexpr int REQUIRED_NODE_MINOR = 22;
+constexpr int REQUIRED_NODE_PATCH = 0;
+
 /**
  * Configuration for the Node.js runtime
  */

@@ -131,6 +131,14 @@ bool NodeJSWindow::initializeNodeRuntime() {
 #ifdef ENABLE_LIBNODE
     LOG_INFO(LogDev, "[NodeJS] Initializing libnode runtime...");
 
+    // Verify Node.js version is 22.22.0
+    // In a real implementation, this would check NODE_VERSION_STRING
+    // const char* nodeVersion = node::GetVersion();
+    // if (strcmp(nodeVersion, "v22.22.0") != 0) {
+    //     LOG_ERROR(LogDev, "[NodeJS] Incorrect Node.js version: {}. Required: v22.22.0", nodeVersion);
+    //     return false;
+    // }
+    
     // Initialize Node.js platform
     // In a real implementation, this would use node::InitializeNodePlatform()
     // and create an isolate with node::NewIsolate()
@@ -166,9 +174,12 @@ bool NodeJSWindow::initializeNodeRuntime() {
     std::cout << std::endl;
     std::cout << "libnode is not available in this build." << std::endl;
     std::cout << "To enable Node.js support:" << std::endl;
-    std::cout << "1. Download libnode.dll" << std::endl;
-    std::cout << "2. Place in vendor/libnode/" << std::endl;
+    std::cout << "1. Download Node.js 22.22.0 from:" << std::endl;
+    std::cout << "   https://nodejs.org/download/release/v22.22.0/" << std::endl;
+    std::cout << "2. Place node-v22.22.0-win-x64.zip contents in vendor/libnode/" << std::endl;
     std::cout << "3. Rebuild with ENABLE_LIBNODE defined" << std::endl;
+    std::cout << std::endl;
+    std::cout << "IMPORTANT: Only Node.js 22.22.0 is supported." << std::endl;
     std::cout << "========================================" << std::endl;
     
     return true;

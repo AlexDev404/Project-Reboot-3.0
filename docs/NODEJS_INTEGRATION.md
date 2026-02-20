@@ -95,8 +95,9 @@ The current implementation runs in **mock mode**, which means:
 To enable actual Node.js embedding:
 
 1. **Download libnode**:
-   - Get the libnode headers and library from [nodejs.org](https://nodejs.org/)
-   - Or build from source: [Node.js GitHub](https://github.com/nodejs/node)
+   - Get Node.js 22.22.0 specifically from [nodejs.org/download/release/v22.22.0/](https://nodejs.org/download/release/v22.22.0/)
+   - **Important**: Only version 22.22.0 is supported. Do not use other versions.
+   - Download the Windows x64 package: `node-v22.22.0-win-x64.zip`
 
 2. **Place files in vendor directory**:
    ```
