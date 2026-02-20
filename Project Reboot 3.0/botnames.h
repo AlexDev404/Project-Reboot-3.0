@@ -30,6 +30,7 @@ static inline void InitBotNames()
     PlayerBotNames.push_back(L"Zulu");
     PlayerBotNames.push_back(L"kemo");
     PlayerBotNames.push_back(L"Ender");
+    PlayerBotNames.push_back(L"karma");
     PlayerBotNames.push_back(L"Samuel");
     PlayerBotNames.push_back(L"Kyiro");
     PlayerBotNames.push_back(L"Ahava");
@@ -68,4 +69,7 @@ static inline void InitBotNames()
     PlayerBotNames.push_back(L"AllyJax");
     PlayerBotNames.push_back(L"secret_pommes");
     PlayerBotNames.push_back(L"Twin1");
+    PlayerBotNames.push_back(L"Marvelco");
+
+    std::shuffle(PlayerBotNames.begin(), PlayerBotNames.end(), std::default_random_engine((unsigned int)time(0)));
 }

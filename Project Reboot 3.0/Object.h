@@ -28,6 +28,8 @@ struct FGuid
 	}
 };
 
+// #define PE_SAFETY
+
 class UObject
 {
 public:
@@ -42,12 +44,28 @@ public:
 
 	/* virtual */ void ProcessEvent(UFunction* Function, void* Parms = nullptr)
 	{
+#ifdef PE_SAFETY
+		if (!Function)
+		{
+			LOG_INFO(LogDev, "TRIED CALLING INVALID PE FUNC! Ignoring.");
+			return;
+		}
+#endif
+
 		// LOG_INFO(LogDev, "PE: 0x{:x}", __int64(ProcessEventOriginal) - __int64(GetModuleHandleW(0)));
 		ProcessEventOriginal(this, Function, Parms);
 	}
 
 	/* virtual */ void ProcessEvent(UFunction* Function, void* Parms = nullptr) const
 	{
+#ifdef PE_SAFETY
+		if (!Function)
+		{
+			LOG_INFO(LogDev, "TRIED CALLING INVALID PE FUNC! Ignoring.");
+			return;
+		}
+#endif
+
 		// LOG_INFO(LogDev, "PE: 0x{:x}", __int64(ProcessEventOriginal) - __int64(GetModuleHandleW(0)));
 		ProcessEventOriginal(this, Function, Parms);
 	}
@@ -64,8 +82,10 @@ public:
 
 	void* GetProperty(const std::string& ChildName, bool bWarnIfNotFound = true);
 	void* GetProperty(const std::string& ChildName, bool bWarnIfNotFound = true) const;
+	void* GetPropertyFunc(const std::string& ChildName, bool bWarnIfNotFound = true);
 	int GetOffset(const std::string& ChildName, bool bWarnIfNotFound = true);
 	int GetOffset(const std::string& ChildName, bool bWarnIfNotFound = true) const;
+	int GetOffsetFunc(const std::string& ChildName, bool bWarnIfNotFound = true);
 
 	template <typename T = UObject*>
 	inline T& Get(int Offset) const { return *(T*)(__int64(this) + Offset); }
@@ -135,3 +155,33 @@ FORCEINLINE bool IsValidChecked(const UObject* Test)
 
 	return true; // FInternalUObjectBaseUtilityIsValidFlagsChecker::CheckObjectValidBasedOnItsFlags(Test);
 }
+
+class Test
+{
+	// IMPLICITLY: Test() { VFT = TestVFT }
+	// IMPLICITLY: void** VFT // 0x0
+	virtual void func() {}
+	virtual void people() {}
+};
+
+/*
+
+TestVFT:
+
+Test::func
+Test::people
+
+HelloVFT:
+
+Hello::func
+Test::people
+Hello::func2
+
+*/
+
+class Hello : Test
+{
+	// IMPLICITLY: Hello() { VFT = HelloVFT }
+	void func() override { /**/ }
+	virtual void func2() {}
+};

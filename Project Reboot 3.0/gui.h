@@ -6,7 +6,7 @@
 
 #include <Windows.h>
 #include <dxgi.h>
-#include <d3d11.h>
+// #include <d3d11.h>
 #include <d3d9.h>
 
 #include <ImGui/imgui.h>
@@ -45,6 +45,7 @@
 #include "vendingmachine.h"
 #include "die.h"
 #include "calendar.h"
+#include "KismetRenderingLibrary.h"
 
 #define GAME_TAB 1
 #define PLAYERS_TAB 2
@@ -115,7 +116,7 @@ static inline void SetIsLategame(bool Value)
 
 static inline bool HasAnyCalendarModification()
 {
-	return Calendar::HasSnowModification() || Calendar::HasNYE() || std::floor(Fortnite_Version) == 13;
+	return Calendar::HasSnowModification() || Calendar::HasNYE() || Fortnite_Version == 8.40 || std::floor(Fortnite_Version) == 13;
 }
 
 static inline void Restart() // todo move?
@@ -123,7 +124,7 @@ static inline void Restart() // todo move?
 	InitBotNames();
 
 	FString LevelA = Engine_Version < 424
-		? L"open Athena_Terrain" : Engine_Version >= 500 ? Engine_Version >= 501
+		? L"open Athena_Terrain" : Engine_Version >= 500 ? Fortnite_Version >= 23
 		? L"open Asteria_Terrain"
 		: Globals::bCreative ? L"open Creative_NoApollo_Terrain"
 		: L"open Artemis_Terrain"
@@ -336,6 +337,8 @@ static inline void StaticUI()
 		if (ImGui::Checkbox("Log ProcessEvent", &Globals::bLogProcessEvent))
 		{
 			// todo toggle hook
+			// this is lowkey highkey a race.. so i hope this below will fix ? idk im confused
+			UObject::ProcessEventOriginal = decltype(UObject::ProcessEventOriginal)(Addresses::ProcessEvent);
 			Hooking::MinHook::Hook((PVOID)Addresses::ProcessEvent, ProcessEventHook, (PVOID*)&UObject::ProcessEventOriginal);
 		}
 	}
@@ -345,7 +348,7 @@ static inline void StaticUI()
 	ImGui::Checkbox("Infinite Ammo", &Globals::bInfiniteAmmo);
 	ImGui::Checkbox("Infinite Materials", &Globals::bInfiniteMaterials);
 	
-	ImGui::Checkbox("Private IP's are operator", &Globals::bPrivateIPsAreOperator);
+	ImGui::Checkbox("Private IPs are operator", &Globals::bPrivateIPsAreOperator);
 
 	ImGui::Checkbox("No MCP (Don't change unless you know what this is)", &Globals::bNoMCP);
 
@@ -953,6 +956,66 @@ static inline void MainUI()
 				}
 			}
 
+			/*
+			 * Notes:
+			 * 
+			 * Dopey (8.?? to 8.??) mining stones
+			 * 
+			 * Rune events:
+			 * Sleepy (8.40) hit the rune and it moves
+			 * Leaky  (8.40) rotate 3 beams onto the rune
+			 * Sneezy (8.50) dance for progress
+			*/
+			if (Fortnite_Version == 8.40)
+			{
+				static UObject* SAR = FindObject("/Game/Athena/Maps/Athena_POI_Foundations.Athena_POI_Foundations:PersistentLevel.BP_SnowAlwaysRelevant_2");
+				if (SAR)
+				{
+					static bool LoadedSleepy = false;
+					if (!LoadedSleepy && ImGui::Button("Load Sleepy"))
+					{
+						SAR->ProcessEvent(SAR->FindFunction("LoadSleepy"));
+
+						LoadedSleepy = true;
+
+						UObject* SleepyProp = FindObject("/Game/Athena/Maps/Test/S8/SleepyMap.SleepyMap.PersistentLevel.BP_Sleepy_Prop_0");
+						UObject* SleepyM = FindObject("/Game/Athena/Maps/Test/S8/SleepyMap.SleepyMap.PersistentLevel.BP_Sleepy_M_2");
+
+						while (!SleepyProp && !SleepyM)
+						{
+							SleepyProp = FindObject("/Game/Athena/Maps/Test/S8/SleepyMap.SleepyMap.PersistentLevel.BP_Sleepy_Prop_0");
+							SleepyM = FindObject("/Game/Athena/Maps/Test/S8/SleepyMap.SleepyMap.PersistentLevel.BP_Sleepy_M_2");
+						}
+
+						Hooking::MinHook::Hook(SleepyProp, SleepyProp->FindFunction("OnDamageServer"), Calendar::OnDamageServerSleepyHook, nullptr, false, true);
+						int FiveHundred = 500;
+						*SleepyM->GetPtr<int>("MaxHealth") = 500;
+						SleepyM->ProcessEvent(SleepyM->FindFunction("RootSetProgress"), &FiveHundred);
+
+						LOG_INFO(LogDev, "Sleepy loaded!");
+					}
+
+					if (LoadedSleepy)
+					{
+						static int SleepyProgress = 0;
+						ImGui::SliderInt("Sleepy Progress", &SleepyProgress, 0, 1000);
+						if (ImGui::Button("Move Sleepy"))
+						{
+							static UObject* SleepyM = FindObject("/Game/Athena/Maps/Test/S8/SleepyMap.SleepyMap.PersistentLevel.BP_Sleepy_M_2");
+							static auto ProgressOffset = SleepyM->GetOffset("Progress");
+							*SleepyM->GetPtr<float>(ProgressOffset) = (float)SleepyProgress * (1.0f / 1000.0f);
+							static int EntryPoint = 929;
+							static auto ExecUbergraph = SleepyM->FindFunction("ExecuteUbergraph_BP_Sleepy_M");
+							SleepyM->ProcessEvent(ExecUbergraph, &EntryPoint);
+						}
+					}
+				}
+				else
+				{
+					ImGui::Text("Failed to find BP_SnowAlwaysRelevant_C");
+				}
+			}
+
 			if (std::floor(Fortnite_Version) == 13)
 			{
 				static UObject* WL = FindObject("/Game/Athena/Apollo/Maps/Apollo_POI_Foundations.Apollo_POI_Foundations.PersistentLevel.Apollo_WaterSetup_2");
@@ -1010,11 +1073,11 @@ static inline void MainUI()
 
 		else if (Tab == DUMP_TAB)
 		{
-			ImGui::Text("These will all be in your Win64 folder!");
+			ImGui::Text("These will all be in your Win64 folder!"); // TODO: Make a button to open this directory
 
 			static std::string FortniteVersionStr = std::format("Fortnite Version {}\n\n", std::to_string(Fortnite_Version));
 
-			if (ImGui::Button("Dump Objects"))
+			if (ImGui::Button("Dump Objects (ObjectsDump.txt)"))
 			{
 				auto ObjectNum = ChunkedObjects ? ChunkedObjects->Num() : UnchunkedObjects ? UnchunkedObjects->Num() : 0;
 
@@ -1022,7 +1085,7 @@ static inline void MainUI()
 
 				obj << FortniteVersionStr;
 
-				for (int i = 0; i < ObjectNum; i++)
+				for (int i = 0; i < ObjectNum; ++i)
 				{
 					auto CurrentObject = GetObjectByIndex(i);
 
@@ -1041,11 +1104,11 @@ static inline void MainUI()
 				{
 					SkinsFile << FortniteVersionStr;
 
-					static auto CIDClass = FindObject<UClass>("/Script/FortniteGame.AthenaCharacterItemDefinition");
+					static auto CIDClass = FindObject<UClass>(L"/Script/FortniteGame.AthenaCharacterItemDefinition");
 
 					auto AllObjects = GetAllObjectsOfClass(CIDClass);
 
-					for (int i = 0; i < AllObjects.size(); i++)
+					for (int i = 0; i < AllObjects.size(); ++i)
 					{
 						auto CurrentCID = AllObjects.at(i);
 
@@ -1068,12 +1131,12 @@ static inline void MainUI()
 				if (PlaylistsFile.is_open())
 				{
 					PlaylistsFile << FortniteVersionStr;
-					static auto FortPlaylistClass = FindObject<UClass>("/Script/FortniteGame.FortPlaylist");
-					// static auto FortPlaylistClass = FindObject("Class /Script/FortniteGame.FortPlaylistAthena");
+					static auto FortPlaylistClass = FindObject<UClass>(L"/Script/FortniteGame.FortPlaylist");
+					// static auto FortPlaylistClass = FindObject(L"Class /Script/FortniteGame.FortPlaylistAthena");
 
 					auto AllObjects = GetAllObjectsOfClass(FortPlaylistClass);
 
-					for (int i = 0; i < AllObjects.size(); i++)
+					for (int i = 0; i < AllObjects.size(); ++i)
 					{
 						auto Object = AllObjects.at(i);
 
@@ -1264,6 +1327,35 @@ static inline void MainUI()
 					LOG_INFO(LogDev, "GamePhaseStep: {}", (int)GameState->GetGamePhaseStep());
 				}
 			}
+
+			/*
+			if (ImGui::Button("Set countdown 10"))
+			{
+				bStartedBus = true;
+
+				auto GameMode = (AFortGameMode*)GetWorld()->GetGameMode();
+				auto GameState = Cast<AFortGameStateAthena>(GameMode->GetGameState());
+
+				AmountOfPlayersWhenBusStart = GameState->GetPlayersLeft();
+
+				static auto WarmupCountdownEndTimeOffset = GameState->GetOffset("WarmupCountdownEndTime");
+				// GameState->Get<float>(WarmupCountdownEndTimeOffset) = UGameplayStatics::GetTimeSeconds(GetWorld()) + 10;
+
+				float TimeSeconds = GameState->GetServerWorldTimeSeconds(); // UGameplayStatics::GetTimeSeconds(GetWorld());
+				float Duration = 10;
+				float EarlyDuration = Duration;
+
+				static auto WarmupCountdownStartTimeOffset = GameState->GetOffset("WarmupCountdownStartTime");
+				static auto WarmupCountdownDurationOffset = GameMode->GetOffset("WarmupCountdownDuration");
+				static auto WarmupEarlyCountdownDurationOffset = GameMode->GetOffset("WarmupEarlyCountdownDuration");
+
+				GameState->Get<float>(WarmupCountdownEndTimeOffset) = TimeSeconds + Duration;
+				GameMode->Get<float>(WarmupCountdownDurationOffset) = Duration;
+
+				// GameState->Get<float>(WarmupCountdownStartTimeOffset) = TimeSeconds;
+				GameMode->Get<float>(WarmupEarlyCountdownDurationOffset) = EarlyDuration;
+			}
+			*/
 
 			if (ImGui::Button("Dump Object Info"))
 			{
@@ -1472,7 +1564,16 @@ static inline DWORD WINAPI GuiThread(LPVOID)
 {
 	WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, WndProc, 0L, 0L, GetModuleHandle(NULL), NULL, NULL, NULL, NULL, L"RebootClass", NULL };
 	::RegisterClassEx(&wc);
-	HWND hwnd = ::CreateWindowExW(0L, wc.lpszClassName, (L"Project Reboot " + std::to_wstring(Fortnite_Version)).c_str(), (WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX), 100, 100, Width, Height, NULL, NULL, wc.hInstance, NULL);
+
+	HWND hwnd = ::CreateWindowExW(0L,wc.lpszClassName,(L"Project Reboot " + ([](double v) { std::wstringstream ss; ss << std::fixed << std::setprecision(2) << v; return ss.str(); })(Fortnite_Version)).c_str(),(WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX), 100, 100, Width, Height, NULL, NULL, wc.hInstance, NULL);
+
+
+	if (hwnd == NULL)
+	{
+		MessageBoxA(0, ("Failed to create GUI window " + std::to_string(GetLastError()) + "!").c_str(), "Reboot 3.0", MB_ICONERROR);
+		::UnregisterClass(wc.lpszClassName, wc.hInstance);
+		return 1;
+	}
 
 	if (false) // idk why this dont work
 	{
@@ -1486,6 +1587,7 @@ static inline DWORD WINAPI GuiThread(LPVOID)
 	// Initialize Direct3D
 	if (!CreateDeviceD3D(hwnd))
 	{
+		// MessageBoxA(0, "Failed to create D3D Device!", "Reboot 3.0", MB_ICONERROR); // Error Boxes are within the helper function.
 		LOG_ERROR(LogDev, "Failed to create D3D Device!");
 		CleanupDeviceD3D();
 		::UnregisterClass(wc.lpszClassName, wc.hInstance);
@@ -1589,6 +1691,8 @@ static inline DWORD WINAPI GuiThread(LPVOID)
 			ResetDevice();
 	}
 
+	LOG_INFO(LogDev, "ImGUI has quit!");
+
 	ImGui_ImplDX9_Shutdown();
 	ImGui_ImplWin32_Shutdown();
 	ImGui::DestroyContext();
@@ -1604,8 +1708,12 @@ static inline DWORD WINAPI GuiThread(LPVOID)
 
 static inline bool CreateDeviceD3D(HWND hWnd)
 {
-	if ((g_pD3D = Direct3DCreate9(D3D_SDK_VERSION)) == NULL)
+	g_pD3D = Direct3DCreate9(D3D_SDK_VERSION);
+	if (g_pD3D == NULL)
+	{
+		MessageBoxA(0, "Failed call to Direct3DCreate9!", "Reboot 3.0", MB_ICONERROR);
 		return false;
+	}
 
 	// Create the D3DDevice
 	ZeroMemory(&g_d3dpp, sizeof(g_d3dpp));
@@ -1616,8 +1724,23 @@ static inline bool CreateDeviceD3D(HWND hWnd)
 	g_d3dpp.AutoDepthStencilFormat = D3DFMT_D16;
 	g_d3dpp.PresentationInterval = D3DPRESENT_INTERVAL_ONE;           // Present with vsync
 	//g_d3dpp.PresentationInterval = D3DPRESENT_INTERVAL_IMMEDIATE;   // Present without vsync, maximum unthrottled framerate
-	if (g_pD3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, hWnd, D3DCREATE_HARDWARE_VERTEXPROCESSING, &g_d3dpp, &g_pd3dDevice) < 0)
+
+	auto CreateDeviceResult = g_pD3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, hWnd, D3DCREATE_HARDWARE_VERTEXPROCESSING, &g_d3dpp, &g_pd3dDevice);
+
+	if (CreateDeviceResult == -2005530520)
+	{
+		UKismetSystemLibrary::ExecuteConsoleCommand(GetWorld(), L"r.setres 1280x720w", nullptr);
+
+		Sleep(50); // for good measure
+
+		return CreateDeviceD3D(hWnd);
+	}
+	else if (CreateDeviceResult < D3D_OK)
+	{
+		MessageBoxA(0, ("Failed call to CreateDevice " + std::to_string(CreateDeviceResult) + "!").c_str(), "Reboot 3.0", MB_ICONERROR);
+
 		return false;
+	}
 
 	return true;
 }

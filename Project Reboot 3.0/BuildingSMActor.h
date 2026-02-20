@@ -50,12 +50,14 @@ public:
 
 	void SetEditingPlayer(APlayerState* NewEditingPlayer) // actually AFortPlayerStateZone
 	{
+		/*
 		if (// AActor::HasAuthority() &&
 			(!GetEditingPlayer() || !NewEditingPlayer)
 			)
+			*/
 		{
 			SetNetDormancy((ENetDormancy)(2 - (NewEditingPlayer != 0)));
-			this->ForceNetUpdate();
+			ForceNetUpdate();
 			GetEditingPlayer() = NewEditingPlayer;
 		}
 	}

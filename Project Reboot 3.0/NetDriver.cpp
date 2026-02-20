@@ -7,10 +7,21 @@
 #include "GameplayStatics.h"
 #include "KismetMathLibrary.h"
 #include <random>
-#include "Package.h"S
+#include "Package.h"
 #include "AssertionMacros.h"
 #include "bots.h"
 #include "gui.h"
+
+enum class EChannelCloseReason : uint8
+{
+	Destroyed,
+	Dormancy,
+	LevelUnloaded,
+	Relevancy,
+	TearOff,
+	/* reserved */
+	MAX = 15		// this value is used for serialization, modifying it may require a network version change
+};
 
 FNetworkObjectList& UNetDriver::GetNetworkObjectList()
 {
@@ -225,7 +236,7 @@ void UNetDriver::ServerReplicateActors_BuildConsiderList(std::vector<FNetworkObj
 
 			static auto NetDormancyOffset = Actor->GetOffset("NetDormancy");
 
-			if (Actor->Get<ENetDormancy>(NetDormancyOffset) == ENetDormancy::DORM_Initial && Actor->IsNetStartupActor()) // IsDormInitialStartupActor
+			if (Actor->Get<ENetDormancy>(NetDormancyOffset) == ENetDormancy::DORM_Initial && Actor->IsNetStartupActor()) // IsDormInitialStartupActor 
 			{
 				continue;
 			}
@@ -288,10 +299,13 @@ void UNetDriver::ServerReplicateActors_BuildConsiderList(std::vector<FNetworkObj
 		{
 			auto Actor = Actors.at(i);
 
+			if (!Actor->DoesReplicate())
+				continue;
+
 			if (Actor->IsPendingKillPending())
 				// if (Actor->IsPendingKill())
 			{
-				ActorsToRemove.push_back(Actor);
+				// ActorsToRemove.push_back(Actor);
 				continue;
 			}
 
@@ -299,11 +313,16 @@ void UNetDriver::ServerReplicateActors_BuildConsiderList(std::vector<FNetworkObj
 
 			if (Actor->Get<ENetRole>(RemoteRoleOffset) == ENetRole::ROLE_None)
 			{
-				ActorsToRemove.push_back(Actor);
+				// ActorsToRemove.push_back(Actor);
 				continue;
 			}
 
 			// We should add a NetDriverName check but I don't believe it is needed.
+			if (Actor->GetNetDriverName() != this->GetNetDriverName())
+			{
+				// ActorsToRemove.push_back(Actor);
+				continue;
+			}
 
 			// We should check if the actor is initialized here.
 
@@ -339,7 +358,7 @@ void UNetDriver::ServerReplicateActors_BuildConsiderList(std::vector<FNetworkObj
 	}
 }
 
-static UActorChannel* FindChannel(AActor * Actor, UNetConnection * Connection)
+static UActorChannel* FindChannel(AActor* Actor, UNetConnection* Connection)
 {
 	static auto OpenChannelsOffset = Connection->GetOffset("OpenChannels");
 	auto& OpenChannels = Connection->Get<TArray<UChannel*>>(OpenChannelsOffset);
@@ -376,20 +395,16 @@ static UActorChannel* FindChannel(AActor * Actor, UNetConnection * Connection)
 	return nullptr;
 }
 
-static bool IsActorRelevantToConnection(AActor * Actor, std::vector<FNetViewer>&ConnectionViewers)
+static bool IsActorRelevantToConnection(AActor* Actor, std::vector<FNetViewer>&ConnectionViewers)
 {
-	for (int32 viewerIdx = 0; viewerIdx < ConnectionViewers.size(); viewerIdx++)
+	for (int32 viewerIdx = 0; viewerIdx < ConnectionViewers.size(); ++viewerIdx)
 	{
 		if (!ConnectionViewers[viewerIdx].ViewTarget)
 			continue;
 
-		// static bool (*IsNetRelevantFor)(AActor*, AActor*, AActor*, FVector&) = decltype(IsNetRelevantFor)(__int64(GetModuleHandleW(0)) + 0x1ECC700);
-
-		static auto index = Offsets::IsNetRelevantFor;
-
 		// if (Actor->IsNetRelevantFor(ConnectionViewers[viewerIdx].InViewer, ConnectionViewers[viewerIdx].ViewTarget, ConnectionViewers[viewerIdx].ViewLocation))
 		// if (IsNetRelevantFor(Actor, ConnectionViewers[viewerIdx].InViewer, ConnectionViewers[viewerIdx].ViewTarget, ConnectionViewers[viewerIdx].ViewLocation))
-		if (reinterpret_cast<bool(*)(AActor*, AActor*, AActor*, FVector&)>(Actor->VFTable[index])(
+		if (reinterpret_cast<bool(*)(AActor*, AActor*, AActor*, const FVector&)>(Actor->VFTable[Offsets::IsNetRelevantFor])(
 			Actor, ConnectionViewers[viewerIdx].InViewer, ConnectionViewers[viewerIdx].ViewTarget, ConnectionViewers[viewerIdx].ViewLocation))
 		{
 			return true;
@@ -556,7 +571,7 @@ void SetChannelActorForDestroy(UActorChannel* Channel, FActorDestructionInfo* De
 
 		using UPackageMap = UObject;
 
-		reinterpret_cast<bool(*)(UPackageMap*, FArchive * Ar, UObject * InOuter,FNetworkGUID NetGUID, FString ObjName)>(Connection->GetPackageMap()->VFTable[0x238 / 8])(Connection->GetPackageMap(), &CloseBunch, DestructInfo->ObjOuter.Get(), DestructInfo->NetGUID, DestructInfo->PathName);
+		reinterpret_cast<bool(*)(UPackageMap*, FArchive* Ar, UObject* InOuter, FNetworkGUID NetGUID, FString ObjName)>(Connection->GetPackageMap()->VFTable[0x238 / 8])(Connection->GetPackageMap(), &CloseBunch, DestructInfo->ObjOuter.Get(), DestructInfo->NetGUID, DestructInfo->PathName);
 
 		// UE_LOG(LogNetTraffic, Log, TEXT("SetChannelActorForDestroy: Channel %d. NetGUID <%s> Path: %s. Bits: %d"), ChIndex, *DestructInfo->NetGUID.ToString(), *DestructInfo->PathName, CloseBunch.GetNumBits());
 		// UE_LOG(LogNetDormancy, Verbose, TEXT("SetChannelActorForDestroy: Channel %d. NetGUID <%s> Path: %s. Bits: %d"), ChIndex, *DestructInfo->NetGUID.ToString(), *DestructInfo->PathName, CloseBunch.GetNumBits());
@@ -585,7 +600,7 @@ int32 UNetDriver::ServerReplicateActors()
 	++(*(int*)(__int64(this) + Offsets::ReplicationFrame));
 
 	const int32 NumClientsToTick = ServerReplicateActors_PrepConnections(this);
-
+	// LOG_INFO(LogDev, "NumClientsToTick: {}", NumClientsToTick);
 	if (NumClientsToTick == 0)
 	{
 		// No connections are ready this frame
@@ -606,9 +621,11 @@ int32 UNetDriver::ServerReplicateActors()
 		// bCPUSaturated = DeltaSeconds > 1.2f * ServerTickTime;
 	}
 
+	bool bUseNetworkObjectList = ShouldUseNetworkObjectList();
+
 	std::vector<FNetworkObjectInfo*> ConsiderList;
 
-	if (ShouldUseNetworkObjectList())
+	if (bUseNetworkObjectList)
 		ConsiderList.reserve(GetNetworkObjectList().ActiveNetworkObjects.Num());
 
 	auto World = GetWorld();
@@ -619,11 +636,12 @@ int32 UNetDriver::ServerReplicateActors()
 
 	static UChannel* (*CreateChannel)(UNetConnection*, int, bool, int32_t) = decltype(CreateChannel)(Addresses::CreateChannel);
 	static __int64 (*ReplicateActor)(UActorChannel*) = decltype(ReplicateActor)(Addresses::ReplicateActor);
-	static UObject* (*CreateChannelByName)(UNetConnection * Connection, FName * ChName, EChannelCreateFlags CreateFlags, int32_t ChannelIndex) = decltype(CreateChannelByName)(Addresses::CreateChannel);
+	static UObject* (*CreateChannelByName)(UNetConnection* Connection, const FName& ChName, EChannelCreateFlags CreateFlags, int32_t ChannelIndex) = decltype(CreateChannelByName)(Addresses::CreateChannel);
 	static __int64 (*SetChannelActor)(UActorChannel*, AActor*) = decltype(SetChannelActor)(Addresses::SetChannelActor);
 	static __int64 (*SetChannelActor2)(UActorChannel*, AActor*, ESetChannelActorFlags) = decltype(SetChannelActor2)(Addresses::SetChannelActor);
+	static FName ActorName = UKismetStringLibrary::Conv_StringToName(L"Actor");
 
-	for (int32 i = 0; i < this->GetClientConnections().Num(); i++)
+	for (int32 i = 0; i < this->GetClientConnections().Num(); ++i)
 	{
 		UNetConnection* Connection = this->GetClientConnections().at(i);
 
@@ -694,7 +712,7 @@ int32 UNetDriver::ServerReplicateActors()
 
 		for (FActorDestructionInfo* DeletionEntry : DeletionEntries)
 		{
-			LOG_INFO(LogDev, "AA: {}", DeletionEntry->PathName.Data.Data ? DeletionEntry->PathName.ToString() : "Null");
+			LOG_INFO(LogDev, "PathName: {}", DeletionEntry->PathName.Data.Data ? DeletionEntry->PathName.ToString() : "Null");
 
 			if (DeletionEntry->StreamingLevelName != -1)
 			{
@@ -719,11 +737,8 @@ int32 UNetDriver::ServerReplicateActors()
 
 			if (Engine_Version >= 422)
 			{
-				FString ActorStr = L"Actor";
-				FName ActorName = UKismetStringLibrary::Conv_StringToName(ActorStr);
-
 				int ChannelIndex = -1; // 4294967295
-				Channel = (UActorChannel*)CreateChannelByName(Connection, &ActorName, EChannelCreateFlags::OpenedLocally, ChannelIndex);
+				Channel = (UActorChannel*)CreateChannelByName(Connection, ActorName, EChannelCreateFlags::OpenedLocally, ChannelIndex);
 			}
 			else
 			{
@@ -786,42 +801,52 @@ int32 UNetDriver::ServerReplicateActors()
 			if (Addresses::ActorChannelClose && Offsets::IsNetRelevantFor)
 			{
 				static void (*ActorChannelClose)(UActorChannel*) = decltype(ActorChannelClose)(Addresses::ActorChannelClose);
+				static void (*ActorChannelCloseParams)(UActorChannel*, EChannelCloseReason) = decltype(ActorChannelCloseParams)(Addresses::ActorChannelClose);
 
-				if (!Actor->IsAlwaysRelevant() && !Actor->UsesOwnerRelevancy() && !Actor->IsOnlyRelevantToOwner())
+				if (!Actor->IsAlwaysRelevant())
 				{
-					if (Connection && Connection->GetViewTarget())
+					if (!Actor->UsesOwnerRelevancy() && !Actor->IsOnlyRelevantToOwner())
 					{
-						auto Viewer = Connection->GetViewTarget();
-						auto Loc = Viewer->GetActorLocation();
-
-						if (!IsActorRelevantToConnection(Actor, ConnectionViewers))
+						if (auto Viewer = Connection->GetViewTarget())
 						{
-							// LOG_INFO(LogReplication, "Actor is not relevant!");
+							auto Loc = Viewer->GetActorLocation();
 
-							if (Channel)
-								ActorChannelClose(Channel);
+							if (!IsActorRelevantToConnection(Actor, ConnectionViewers))
+							{
+								// LOG_INFO(LogReplication, "Actor is not relevant!");
 
-							continue;
+								if (Channel)
+								{
+									// can we just call yes
+									if (Fortnite_Version > 20)
+										ActorChannelCloseParams(Channel, EChannelCloseReason::Relevancy);
+									else
+										ActorChannelClose(Channel);
+								}
+
+								continue;
+							}
 						}
+					}
+					else
+					{
+						// TODO ?
 					}
 				}
 			}
 
-
 			if (!Channel)
 			{
-				if (Actor->IsA(APlayerController::StaticClass()) && Actor != Connection->GetPlayerController()) // isnetrelevantfor should handle this iirc
+				if (// !Offsets::IsNetRelevantFor && 
+					Actor->IsA(APlayerController::StaticClass()) && Actor != Connection->GetPlayerController()) // isnetrelevantfor should handle this iirc
 					continue;
 
 				if (bLevelInitializedForActor)
 				{
 					if (Engine_Version >= 422)
 					{
-						FString ActorStr = L"Actor";
-						FName ActorName = UKismetStringLibrary::Conv_StringToName(ActorStr);
-
 						int ChannelIndex = -1; // 4294967295
-						Channel = (UActorChannel*)CreateChannelByName(Connection, &ActorName, EChannelCreateFlags::OpenedLocally, ChannelIndex);
+						Channel = (UActorChannel*)CreateChannelByName(Connection, ActorName, EChannelCreateFlags::OpenedLocally, ChannelIndex);
 					}
 					else
 					{
@@ -830,10 +855,10 @@ int32 UNetDriver::ServerReplicateActors()
 
 					if (Channel)
 					{
-						if (Engine_Version >= 500)
-							SetChannelActor(Channel, Actor);
-						else
+						if (Engine_Version >= 424)
 							SetChannelActor2(Channel, Actor, ESetChannelActorFlags::None);
+						else
+							SetChannelActor(Channel, Actor);
 					}
 				}
 
@@ -845,9 +870,10 @@ int32 UNetDriver::ServerReplicateActors()
 
 			if (Channel)
 			{
+				// LOG_INFO(LogDev, "Actor: {}", Actor->GetFullName());
 				if (ReplicateActor(Channel))
 				{
-					if (ShouldUseNetworkObjectList())
+					if (bUseNetworkObjectList)
 					{
 						// LOG_INFO(LogReplication, "Replicated Actor!");
 						auto TimeSeconds = UGameplayStatics::GetTimeSeconds(World);
@@ -862,6 +888,14 @@ int32 UNetDriver::ServerReplicateActors()
 				}
 			}
 		}
+	}
+
+	if (!bUseNetworkObjectList) // BOOM
+	{
+		for (auto info : ConsiderList)
+		{
+			delete info;
+		}	
 	}
 
 	// shuffle the list of connections if not all connections were ticked

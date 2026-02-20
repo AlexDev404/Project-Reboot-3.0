@@ -346,15 +346,20 @@ void AFortPlayerController::ServerExecuteInventoryItemHook(AFortPlayerController
 
 	if (auto DecoItemDefinition = Cast<UFortDecoItemDefinition>(ItemDefinition))
 	{
-		Pawn->PickUpActor(nullptr, DecoItemDefinition); // todo check ret value? // I checked on 1.7.2 and it only returns true if the new weapon is a FortDecoTool
-		Pawn->GetCurrentWeapon()->GetItemEntryGuid() = ItemGuid;
-
-		static auto FortDecoTool_ContextTrapStaticClass = FindObject<UClass>(L"/Script/FortniteGame.FortDecoTool_ContextTrap");
-
-		if (Pawn->GetCurrentWeapon()->IsA(FortDecoTool_ContextTrapStaticClass))
+		if (Fortnite_Version < 18) // gg
 		{
-			static auto ContextTrapItemDefinitionOffset = Pawn->GetCurrentWeapon()->GetOffset("ContextTrapItemDefinition");
-			Pawn->GetCurrentWeapon()->Get<UObject*>(ContextTrapItemDefinitionOffset) = DecoItemDefinition;
+			if (Pawn->PickUpActor(nullptr, DecoItemDefinition))
+			{
+				Pawn->GetCurrentWeapon()->GetItemEntryGuid() = ItemGuid;
+
+				static auto FortDecoTool_ContextTrapStaticClass = FindObject<UClass>(L"/Script/FortniteGame.FortDecoTool_ContextTrap");
+
+				if (Pawn->GetCurrentWeapon()->IsA(FortDecoTool_ContextTrapStaticClass))
+				{
+					static auto ContextTrapItemDefinitionOffset = Pawn->GetCurrentWeapon()->GetOffset("ContextTrapItemDefinition");
+					Pawn->GetCurrentWeapon()->Get<UObject*>(ContextTrapItemDefinitionOffset) = DecoItemDefinition;
+				}
+			}
 		}
 
 		return;
@@ -1332,7 +1337,17 @@ void AFortPlayerController::ClientOnPawnDiedHook(AFortPlayerController* PlayerCo
 
 		*(bool*)(__int64(DeathInfo) + MemberOffsets::DeathInfo::bDBNO) = DeadPawn->IsDBNO();
 		*(uint8*)(__int64(DeathInfo) + MemberOffsets::DeathInfo::DeathCause) = DeathCause;
-		*(AActor**)(__int64(DeathInfo) + MemberOffsets::DeathInfo::FinisherOrDowner) = KillerPlayerState ? KillerPlayerState : DeadPlayerState;
+
+		auto FinisherOrDowner = KillerPlayerState ? KillerPlayerState : DeadPlayerState;;
+
+		if (MemberOffsets::DeathInfo::bIsWeakFinisherOrDowner)
+		{
+			TWeakObjectPtr<AActor> WeakFinisherOrDowner{};
+			WeakFinisherOrDowner.ObjectIndex = FinisherOrDowner->InternalIndex;
+			WeakFinisherOrDowner.ObjectSerialNumber = GetItemByIndex(FinisherOrDowner->InternalIndex)->SerialNumber;
+		}
+		else
+			*(AActor**)(__int64(DeathInfo) + MemberOffsets::DeathInfo::FinisherOrDowner) = FinisherOrDowner;
 
 		if (MemberOffsets::DeathInfo::DeathLocation != -1)
 			*(FVector*)(__int64(DeathInfo) + MemberOffsets::DeathInfo::DeathLocation) = DeathLocation;
@@ -1374,28 +1389,58 @@ void AFortPlayerController::ClientOnPawnDiedHook(AFortPlayerController* PlayerCo
 
 			KillerPlayerState->ClientReportKill(DeadPlayerState);
 
-			/* LoopMutators([&](AFortAthenaMutator* Mutator) {
-				if (auto TDM_Mutator = Cast<AFortAthenaMutator_TDM>(Mutator))
-				{
-					struct
-					{
-						int                                                EventId;                                                  // (Parm, ZeroConstructor, IsPlainOldData, NoDestructor, HasGetValueTypeHash, NativeAccessSpecifierPublic)
-						int                                                EventParam1;                                              // (Parm, ZeroConstructor, IsPlainOldData, NoDestructor, HasGetValueTypeHash, NativeAccessSpecifierPublic)
-						int                                                EventParam2;                                              // (Parm, ZeroConstructor, IsPlainOldData, NoDestructor, HasGetValueTypeHash, NativeAccessSpecifierPublic)
-						int                                                EventParam3;                                              // (Parm, ZeroConstructor, IsPlainOldData, NoDestructor, HasGetValueTypeHash, NativeAccessSpecifierPublic)
-					} AFortAthenaMutator_TDM_OnMutatorGameplayEvent_Params{ 1, 0, 0, 0 }; 
-
-					static auto TDM_OnMutatorGameplayEventFn = FindObject<UFunction>("/Script/FortniteGame.FortAthenaMutator_TDM.OnMutatorGameplayEvent");
-					TDM_Mutator->ProcessEvent(TDM_OnMutatorGameplayEventFn, &AFortAthenaMutator_TDM_OnMutatorGameplayEvent_Params);
-				}
-				}); */
-
 			// KillerPlayerState->OnRep_Kills();
+
+			if (AmountOfHealthSiphon > 0)
+			{
+				auto KillerAbilityComp = KillerPlayerState->GetAbilitySystemComponent();
+
+				if (KillerAbilityComp)
+				{
+					auto ActivatableAbilities = KillerAbilityComp->GetActivatableAbilities();
+					auto& Items = ActivatableAbilities->GetItems();
+					for (size_t i = 0; i < Items.Num(); ++i)
+					{
+						auto& Item = Items.At(i, FGameplayAbilitySpec::GetStructSize());
+						auto Ability = Item.GetAbility();
+						if (Ability && Ability->ClassPrivate && Ability->ClassPrivate->GetName().contains("Siphon"))
+						{
+							FGameplayTag Tag{};
+							Tag.TagName = UKismetStringLibrary::Conv_StringToName(TEXT("GameplayCue.Shield.PotionConsumed"));
+
+							auto NetMulticast_InvokeGameplayCueAdded = FindObject<UFunction>(L"/Script/GameplayAbilities.AbilitySystemComponent.NetMulticast_InvokeGameplayCueAdded");
+							auto NetMulticast_InvokeGameplayCueExecuted = FindObject<UFunction>(L"/Script/GameplayAbilities.AbilitySystemComponent.NetMulticast_InvokeGameplayCueExecuted");
+
+							if (!NetMulticast_InvokeGameplayCueAdded || !NetMulticast_InvokeGameplayCueExecuted)
+								break;
+
+							static auto GameplayCueTagOffsetAdded = NetMulticast_InvokeGameplayCueAdded->GetOffsetFunc("GameplayCueTag");
+							static auto GameplayCueTagOffsetExecuted = NetMulticast_InvokeGameplayCueExecuted->GetOffsetFunc("GameplayCueTag");
+							static auto PredictionKeyOffsetAdded = NetMulticast_InvokeGameplayCueAdded->GetOffsetFunc("PredictionKey");
+
+							auto AddedParams = Alloc<void>(NetMulticast_InvokeGameplayCueAdded->GetPropertiesSize());
+							auto ExecutedParams = Alloc<void>(NetMulticast_InvokeGameplayCueExecuted->GetPropertiesSize());
+
+							if (!AddedParams || !ExecutedParams)
+								break;
+
+							*(FGameplayTag*)(int64(AddedParams) + GameplayCueTagOffsetAdded) = Tag;
+							*(FGameplayTag*)(int64(ExecutedParams) + GameplayCueTagOffsetExecuted) = Tag;
+							//(FPredictionKey*)(int64(AddedParams) + PredictionKeyOffsetAdded) = Tag;
+
+							KillerAbilityComp->ProcessEvent(NetMulticast_InvokeGameplayCueAdded, AddedParams);
+							KillerAbilityComp->ProcessEvent(NetMulticast_InvokeGameplayCueExecuted, ExecutedParams);
+
+							break;
+						}
+					}
+				}
+			}
 		}
 
 		// LOG_INFO(LogDev, "Reported kill.");
 
-		if (AmountOfHealthSiphon != 0)
+		if (AmountOfHealthSiphon > 0)
 		{
 			if (KillerPawn && KillerPawn != DeadPawn)
 			{
@@ -1550,20 +1595,6 @@ void AFortPlayerController::ClientOnPawnDiedHook(AFortPlayerController* PlayerCo
 
 					/*
 
-					STATS:
-
-					Note: This isn't the exact order relative to other functions.
-
-					ClientSendMatchStatsForPlayer
-					ClientSendTeamStatsForPlayer
-					ClientSendEndBattleRoyaleMatchForPlayer
-
-					*/
-
-					// FAthenaMatchStats.Stats[ERewardSource] // hmm
-
-					/*
-
 					// We need to check if their entire team is dead then I think we send it????
 
 					auto DeadControllerAthena = Cast<AFortPlayerControllerAthena>(PlayerController);
@@ -1590,6 +1621,8 @@ void AFortPlayerController::ClientOnPawnDiedHook(AFortPlayerController* PlayerCo
 				}
 
 				// LOG_INFO(LogDev, "KillerPlayerState->Place: {}", KillerPlayerState ? KillerPlayerState->GetPlace() : -1);
+
+				LOG_INFO(LogDev, "TeamsLeft: {}", GameState->GetTeamsLeft()); // Important for launcher don't remove!
 			}
 		}
 
@@ -1612,6 +1645,11 @@ void AFortPlayerController::ClientOnPawnDiedHook(AFortPlayerController* PlayerCo
 					UKismetSystemLibrary::K2_SetTimer(PlayerController, L"SpectateOnDeath", 5.f, false); // Soo proper its scary
 				}
 			}
+		}
+
+		if (Fortnite_Version >= 15) // dk if this is correct
+		{
+			PlayerController->GetStateName() = UKismetStringLibrary::Conv_StringToName(L"Spectating");
 		}
 
 		if (IsRestartingSupported() && Globals::bAutoRestart && !bIsInAutoRestart)
@@ -1656,41 +1694,10 @@ void AFortPlayerController::ClientOnPawnDiedHook(AFortPlayerController* PlayerCo
 	return ClientOnPawnDiedOriginal(PlayerController, DeathReport);
 }
 
-bool Idk(ABuildingSMActor* BuildingActor)
-{
-	return true; // bIsPlayerBuildable && EditModeSupport && EditModePatternData && GameState->StructuralSupportSystem && ?? && ??
-}
-
-bool IsOkForEditing(ABuildingSMActor* BuildingActor, AFortPlayerController* Controller)
-{
-	if (BuildingActor->GetEditingPlayer() && 
-		BuildingActor->GetEditingPlayer() != Controller->GetPlayerState())
-		return false;
-
-	return !BuildingActor->IsDestroyed() &&
-		// BuildingActor->GetWorld() &&
-		Idk(BuildingActor);
-}
-
-/*
-
-The editing dilemma:
-
-15.10:
-Valid edit pattern:
-ServerBeginEditingActorblahblah
-ServerEdit
-ClientForceStop
-
-WHERE IS END EDITING?!?!??!
-Invalid EDitPattern:
-ServerBeginEditingActorblahblah
-ServerEnd
-
-*/
-
 void AFortPlayerController::ServerBeginEditingBuildingActorHook(AFortPlayerController* PlayerController, ABuildingSMActor* BuildingActorToEdit)
 {
+	DEBUG_LOG_INFO(LogDev, "\n[Begin START]!");
+
 	if (!BuildingActorToEdit || !BuildingActorToEdit->IsPlayerPlaced()) // We need more checks.
 		return;
 
@@ -1699,15 +1706,10 @@ void AFortPlayerController::ServerBeginEditingBuildingActorHook(AFortPlayerContr
 	if (!Pawn)
 		return;
 
-	if (!IsOkForEditing(BuildingActorToEdit, PlayerController))
-		return;
-
 	auto PlayerState = PlayerController->GetPlayerState();
 
 	if (!PlayerState)
 		return;
-
-	BuildingActorToEdit->SetEditingPlayer(PlayerState);
 
 	auto WorldInventory = PlayerController->GetWorldInventory();
 
@@ -1721,18 +1723,26 @@ void AFortPlayerController::ServerBeginEditingBuildingActorHook(AFortPlayerContr
 	if (!EditToolInstance)
 		return;
 
-	AFortWeap_EditingTool* EditTool = nullptr;
+	Pawn->EquipWeaponDefinition(EditToolDef, EditToolInstance->GetItemEntry()->GetItemGuid());
 
-	EditTool = Cast<AFortWeap_EditingTool>(Pawn->EquipWeaponDefinition(EditToolDef, EditToolInstance->GetItemEntry()->GetItemGuid()));
+	auto EditTool = Cast<AFortWeap_EditingTool>(Pawn->GetCurrentWeapon());
+	DEBUG_LOG_INFO(LogDev, "[Begin {}] EditTool: {}!", BuildingActorToEdit->GetFullName(), __int64(EditTool));
 
 	if (!EditTool)
 		return;
 
-	EditTool->SetEditActor(BuildingActorToEdit);
+	EditTool->GetEditActor() = BuildingActorToEdit;
+	EditTool->OnRep_EditActor();
+
+	BuildingActorToEdit->SetEditingPlayer(PlayerState);
+
+	DEBUG_LOG_INFO(LogDev, "[Begin] Updating Editing player to: {}!", __int64(PlayerState));
 }
 
 void AFortPlayerController::ServerEditBuildingActorHook(UObject* Context, FFrame& Stack, void* Ret)
 {
+	DEBUG_LOG_INFO(LogDev, "\n[Edit START]!");
+
 	auto PlayerController = (AFortPlayerController*)Context;
 
 	auto PlayerState = (AFortPlayerState*)PlayerController->GetPlayerState();
@@ -1751,7 +1761,7 @@ void AFortPlayerController::ServerEditBuildingActorHook(UObject* Context, FFrame
 
 	// LOG_INFO(LogDev, "RotationIterations: {}", RotationIterations);
 
-	if (!BuildingActorToEdit || !NewBuildingClass || BuildingActorToEdit->GetEditingPlayer() != PlayerState || BuildingActorToEdit->IsDestroyed())
+	if (!BuildingActorToEdit || !NewBuildingClass || BuildingActorToEdit->IsDestroyed() || BuildingActorToEdit->GetEditingPlayer() != PlayerState)
 	{
 		// LOG_INFO(LogDev, "Cheater?");
 		// LOG_INFO(LogDev, "BuildingActorToEdit->GetEditingPlayer(): {} PlayerState: {} NewBuildingClass: {} BuildingActorToEdit: {}", BuildingActorToEdit ? __int64(BuildingActorToEdit->GetEditingPlayer()) : -1, __int64(PlayerState), __int64(NewBuildingClass), __int64(BuildingActorToEdit));
@@ -1761,7 +1771,8 @@ void AFortPlayerController::ServerEditBuildingActorHook(UObject* Context, FFrame
 	// if (!PlayerState || PlayerState->GetTeamIndex() != BuildingActorToEdit->GetTeamIndex()) 
 		//return ServerEditBuildingActorOriginal(Context, Frame, Ret);
 
-	// BuildingActorToEdit->SetEditingPlayer(nullptr); // uh?
+	if (Fortnite_Version >= 8 && Fortnite_Version < 11) // uhhmmm
+	  BuildingActorToEdit->SetEditingPlayer(nullptr);
 
 	static ABuildingSMActor* (*BuildingSMActorReplaceBuildingActor)(ABuildingSMActor*, __int64, UClass*, int, int, uint8_t, AFortPlayerController*) =
 		decltype(BuildingSMActorReplaceBuildingActor)(Addresses::ReplaceBuildingActor);
@@ -1772,13 +1783,43 @@ void AFortPlayerController::ServerEditBuildingActorHook(UObject* Context, FFrame
 		BuildingActor->SetPlayerPlaced(true);
 	}
 
-	// we should do more things here
+	if (Fortnite_Version >= 11)
+	{
+		BuildingActorToEdit->SetEditingPlayer(nullptr);
+		auto Pawn = PlayerController->GetMyFortPawn();
+
+		if (!Pawn)
+			return ServerEditBuildingActorOriginal(Context, Stack, Ret);
+
+		static auto EditToolDef = FindObject<UFortWeaponItemDefinition>(L"/Game/Items/Weapons/BuildingTools/EditTool.EditTool");
+
+		auto WorldInventory = PlayerController->GetWorldInventory();
+
+		if (!WorldInventory)
+			return ServerEditBuildingActorOriginal(Context, Stack, Ret);
+
+		auto EditToolInstance = WorldInventory->FindItemInstance(EditToolDef);
+
+		if (!EditToolInstance)
+			return ServerEditBuildingActorOriginal(Context, Stack, Ret);
+
+		Pawn->EquipWeaponDefinition(EditToolDef, EditToolInstance->GetItemEntry()->GetItemGuid());
+
+		auto EditTool = Cast<AFortWeap_EditingTool>(Pawn->GetCurrentWeapon());
+		DEBUG_LOG_INFO(LogDev, "[Edit] New Equipped EditTool: {}", __int64(EditTool));
+
+		if (EditTool)
+		{
+			EditTool->GetEditActor() = nullptr;
+		}
+	}
 
 	return ServerEditBuildingActorOriginal(Context, Stack, Ret);
 }
 
-void AFortPlayerController::ServerEndEditingBuildingActorHook(AFortPlayerController* PlayerController, ABuildingSMActor* BuildingActorToStopEditing) 
+void AFortPlayerController::ServerEndEditingBuildingActorHook(AFortPlayerController* PlayerController, ABuildingSMActor* BuildingActorToStopEditing)
 {
+	DEBUG_LOG_INFO(LogDev, "\n[End START] [{}] ServerEndEditingBuildingActorHook EditiNgplAyer: {}!", BuildingActorToStopEditing ? BuildingActorToStopEditing->GetName() : "NULL", BuildingActorToStopEditing ? __int64(BuildingActorToStopEditing->GetEditingPlayer()) : -1);
 	auto Pawn = PlayerController->GetMyFortPawn();
 
 	if (!BuildingActorToStopEditing || !Pawn
@@ -1800,13 +1841,20 @@ void AFortPlayerController::ServerEndEditingBuildingActorHook(AFortPlayerControl
 	if (!EditToolInstance)
 		return;
 
-	// Pawn->EquipWeaponDefinition(EditToolDef, EditToolInstance->GetItemEntry()->GetItemGuid()); // why do they do this on older builds bru
+	auto OldWep = Pawn->GetCurrentWeapon();
+	DEBUG_LOG_INFO(LogDev, "[End] EditTool Equipped BEFORE: {} (name: {})", __int64(Cast<AFortWeap_EditingTool>(OldWep)), OldWep ? OldWep->GetFullName() : "NULL");
 
-	if (auto EditTool = Cast<AFortWeap_EditingTool>(Pawn->GetCurrentWeapon()))
+	if (Fortnite_Version >= 11)
 	{
-		EditTool->SetEditActor(nullptr);
-		// PlayerController->ClientForceCancelBuildingTool();
+		Pawn->EquipWeaponDefinition(EditToolDef, EditToolInstance->GetItemEntry()->GetItemGuid());
 	}
 
-	// PlayerController->ClientForceCancelBuildingTool();
+	auto EditTool = Cast<AFortWeap_EditingTool>(Pawn->GetCurrentWeapon());
+	DEBUG_LOG_INFO(LogDev, "[End] EditTool Equipped AFTER: {}", __int64(EditTool));
+
+	if (EditTool)
+	{
+		EditTool->GetEditActor() = nullptr;
+		EditTool->OnRep_EditActor();
+	}
 }

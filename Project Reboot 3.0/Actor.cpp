@@ -8,6 +8,7 @@
 bool AActor::HasAuthority()
 {
 	static auto RoleOffset = GetOffset("Role");
+
 	return Get<uint8_t>(RoleOffset) == 3;
 }
 
@@ -27,6 +28,7 @@ bool AActor::IsTearOff()
 int32& AActor::GetNetTag()
 {
 	static auto NetTagOffset = GetOffset("NetTag");
+	
 	return Get<int32>(NetTagOffset);
 }
 
@@ -65,7 +67,7 @@ AActor* AActor::GetOwner()
 
 void AActor::K2_DestroyActor()
 {
-	static auto DestroyActorFn = FindObject<UFunction>("/Script/Engine.Actor.K2_DestroyActor");
+	static auto DestroyActorFn = FindObject<UFunction>(L"/Script/Engine.Actor.K2_DestroyActor");
 
 	this->ProcessEvent(DestroyActorFn);
 }
@@ -178,10 +180,23 @@ bool AActor::IsActorBeingDestroyed()
 
 bool AActor::IsNetStartup()
 {
-	static auto bNetStartupOffset = GetOffset("bNetStartup");
-	static auto bNetStartupFieldMask = GetFieldMask(GetProperty("bNetStartup"));
+	static auto bNetStartupOffset = GetOffset("bNetStartup", false) == -1
+		? GetOffset("bNetTemporary") // same bitfield, needed because bNetStartup is unreflected later on
+		: GetOffset("bNetStartup"); 
+	static auto bNetStartupFieldMask = GetProperty("bNetStartup", false) 
+		? GetFieldMask(GetProperty("bNetStartup"))
+		: GetFieldMask(GetProperty("bNetTemporary")) * 2; // get the next one
 	return ReadBitfieldValue(bNetStartupOffset, bNetStartupFieldMask);
 }
+
+
+bool AActor::DoesReplicate()
+{
+	static auto bReplicatesOffset = GetOffset("bReplicates");
+	static auto bReplicatesFieldMask = GetFieldMask(GetProperty("bReplicates"));
+	return ReadBitfieldValue(bReplicatesOffset, bReplicatesFieldMask);
+}
+
 
 void AActor::SetOwner(AActor* Owner)
 {
@@ -197,7 +212,8 @@ void AActor::ForceNetUpdate()
 
 bool AActor::IsNetStartupActor()
 {
-	return IsNetStartup(); // The implementation on this function depends on the version.
+	// bNetStartup || (!bActorInitialized && !bActorSeamlessTraveled && bNetLoadOnClient && GetLevel() && !GetLevel()->bAlreadyInitializedNetworkActors);
+	return IsNetStartup(); // ^^ The implementation on this function depends on the version.
 }
 
 bool AActor::IsPendingKillPending()
@@ -292,6 +308,12 @@ AActor* AActor::GetClosestActor(UClass* ActorClass, float DistMax, std::function
 	AllActors.Free();
 
 	return TargetActor;
+}
+
+FName& AActor::GetNetDriverName()
+{
+	static auto NetDriverNameOffset = GetOffset("NetDriverName");
+	return Get<FName>(NetDriverNameOffset);
 }
 
 bool AActor::IsAlwaysRelevant()
