@@ -177,7 +177,7 @@ jobs:
       - name: Download addon artifact (standalone)
         uses: actions/download-artifact@v4
         with:
-          name: icarus-addon-windows-latest-node20
+          name: icarus-addon-windows-latest-node22
           path: release/addon-standalone
 
       - name: Download addon artifact (integrated)
