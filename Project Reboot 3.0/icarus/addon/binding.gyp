@@ -19,7 +19,8 @@
         "src/FlareBinding.cpp"
       ],
       "include_dirs": [
-        "<!@(node -p \"require('node-addon-api').include\")",
+        "<!@(node -p \"require('node-addon-api').include_dir\")",
+        "<!(node -p \"require('node-addon-api').include_dir\")",
         "../..",
         "src"
       ],

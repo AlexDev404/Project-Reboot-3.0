@@ -63,8 +63,8 @@ Napi::Value FlareBinding::Parse(const Napi::CallbackInfo& info) {
             Napi::Env env = info.Env();
             if (info.Length() > 0 && info[0].IsObject()) {
                 Napi::Object flare = info[0].As<Napi::Object>();
-                if (flare.Has("did_you_know")) {
-                    return flare.Get("did_you_know");
+                if (flare.Has("did_you_know").UnwrapOr(false)) {
+                    return flare.Get("did_you_know").Unwrap();
                 }
             }
             return Napi::String::New(env, "Unknown error");
@@ -74,8 +74,8 @@ Napi::Value FlareBinding::Parse(const Napi::CallbackInfo& info) {
             Napi::Env env = info.Env();
             if (info.Length() > 0 && info[0].IsObject()) {
                 Napi::Object flare = info[0].As<Napi::Object>();
-                if (flare.Has("severity")) {
-                    return flare.Get("severity");
+                if (flare.Has("severity").UnwrapOr(false)) {
+                    return flare.Get("severity").Unwrap();
                 }
             }
             return Napi::String::New(env, "UNKNOWN");
@@ -85,8 +85,8 @@ Napi::Value FlareBinding::Parse(const Napi::CallbackInfo& info) {
             Napi::Env env = info.Env();
             if (info.Length() > 0 && info[0].IsObject()) {
                 Napi::Object flare = info[0].As<Napi::Object>();
-                if (flare.Has("spark_id")) {
-                    return flare.Get("spark_id");
+                if (flare.Has("spark_id").UnwrapOr(false)) {
+                    return flare.Get("spark_id").Unwrap();
                 }
             }
             return Napi::String::New(env, "");
@@ -96,8 +96,8 @@ Napi::Value FlareBinding::Parse(const Napi::CallbackInfo& info) {
             Napi::Env env = info.Env();
             if (info.Length() > 0 && info[0].IsObject()) {
                 Napi::Object flare = info[0].As<Napi::Object>();
-                if (flare.Has("severity")) {
-                    std::string sev = flare.Get("severity").As<Napi::String>().Utf8Value();
+                if (flare.Has("severity").UnwrapOr(false)) {
+                    std::string sev = flare.Get("severity").Unwrap().As<Napi::String>().Utf8Value();
                     return Napi::Boolean::New(env, sev == "CRITICAL");
                 }
             }
