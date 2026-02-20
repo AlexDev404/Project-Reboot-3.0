@@ -1,4 +1,5 @@
 import { authenticator } from 'otplib';
+import crypto from 'crypto';
 import { pool } from '../config/database';
 import config from '../config';
 import { Account } from '../types/account';
@@ -90,12 +91,15 @@ export class TOTPService {
   
   /**
    * Generate backup codes (one-time use recovery codes)
+   * Uses cryptographically secure random number generation
    */
   generateBackupCodes(count: number = 10): string[] {
     const codes: string[] = [];
     for (let i = 0; i < count; i++) {
-      // Generate 8-character alphanumeric codes
-      const code = Math.random().toString(36).substring(2, 10).toUpperCase();
+      // Generate 8 bytes of cryptographically secure random data
+      const randomBytes = crypto.randomBytes(6);
+      // Convert to alphanumeric string
+      const code = randomBytes.toString('base64').replace(/[+/=]/g, '').substring(0, 8).toUpperCase();
       codes.push(code);
     }
     return codes;

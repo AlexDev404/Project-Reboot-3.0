@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { authService, accountService } from '../services';
-import { authenticate } from '../middleware';
+import { authenticate, strictRateLimit, authRateLimit } from '../middleware';
 
 const router = Router();
 
@@ -8,7 +8,7 @@ const router = Router();
  * POST /auth/register
  * Register a new account
  */
-router.post('/register', async (req: Request, res: Response) => {
+router.post('/register', authRateLimit, async (req: Request, res: Response) => {
   try {
     const { username, email, password, display_name } = req.body;
     
@@ -73,7 +73,7 @@ router.post('/register', async (req: Request, res: Response) => {
  * POST /auth/login
  * Login with credentials
  */
-router.post('/login', async (req: Request, res: Response) => {
+router.post('/login', strictRateLimit, async (req: Request, res: Response) => {
   try {
     const { username, password, totp_code } = req.body;
     
@@ -176,7 +176,7 @@ router.get('/sessions', authenticate, async (req: Request, res: Response) => {
  * POST /auth/password-reset-request
  * Request password reset token
  */
-router.post('/password-reset-request', async (req: Request, res: Response) => {
+router.post('/password-reset-request', strictRateLimit, async (req: Request, res: Response) => {
   try {
     const { email } = req.body;
     
@@ -190,8 +190,11 @@ router.post('/password-reset-request', async (req: Request, res: Response) => {
     // Always return success to prevent email enumeration
     if (account) {
       const token = await accountService.createPasswordResetToken(account.id);
-      // In production, send this token via email
-      console.log(`[Icarus] Password reset token for ${email}: ${token}`);
+      // TODO: Send this token via email in production
+      // Do NOT log tokens in production - this is for development only
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`[Icarus] Password reset token for ${email}: ${token}`);
+      }
     }
     
     res.json({ message: 'If the email exists, a reset link will be sent' });
@@ -205,7 +208,7 @@ router.post('/password-reset-request', async (req: Request, res: Response) => {
  * POST /auth/password-reset
  * Reset password with token
  */
-router.post('/password-reset', async (req: Request, res: Response) => {
+router.post('/password-reset', strictRateLimit, async (req: Request, res: Response) => {
   try {
     const { token, new_password } = req.body;
     

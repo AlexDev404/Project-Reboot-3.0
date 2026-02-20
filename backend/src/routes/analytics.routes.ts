@@ -1,14 +1,15 @@
 import { Router, Request, Response } from 'express';
 import { pool } from '../config/database';
-import { optionalAuthenticate } from '../middleware';
+import { optionalAuthenticate, apiRateLimit } from '../middleware';
 
 const router = Router();
 
 /**
  * POST /data_router
- * Analytics endpoint for collecting user information
+ * Analytics endpoint for collecting user information.
+ * This route is mounted at /data_router, so the full path is POST /data_router
  */
-router.post('/', optionalAuthenticate, async (req: Request, res: Response) => {
+router.post('/', apiRateLimit, optionalAuthenticate, async (req: Request, res: Response) => {
   try {
     const { event_type, event_data } = req.body;
     

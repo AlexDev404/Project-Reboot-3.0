@@ -151,6 +151,11 @@ export class AuthService {
       expiresMs = parseInt(expiresIn) * 24 * 60 * 60 * 1000;
     } else if (expiresIn.endsWith('m')) {
       expiresMs = parseInt(expiresIn) * 60 * 1000;
+    } else if (expiresIn.endsWith('s')) {
+      expiresMs = parseInt(expiresIn) * 1000;
+    } else if (/^\d+$/.test(expiresIn)) {
+      // If just a number, assume seconds (JWT default)
+      expiresMs = parseInt(expiresIn) * 1000;
     }
     
     const expiresAt = new Date(Date.now() + expiresMs);

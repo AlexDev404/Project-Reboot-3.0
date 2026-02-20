@@ -47,7 +47,13 @@ const config: Config = {
   },
   
   jwt: {
-    secret: process.env.JWT_SECRET || 'default-secret-change-in-production',
+    secret: (() => {
+      const secret = process.env.JWT_SECRET;
+      if (!secret && process.env.NODE_ENV === 'production') {
+        throw new Error('JWT_SECRET must be set in production environment');
+      }
+      return secret || 'default-secret-change-in-production';
+    })(),
     expiresIn: process.env.JWT_EXPIRES_IN || '24h'
   },
   

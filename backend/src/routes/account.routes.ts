@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { accountService, totpService } from '../services';
-import { authenticate } from '../middleware';
+import { authenticate, apiRateLimit } from '../middleware';
 
 const router = Router();
 
@@ -8,7 +8,7 @@ const router = Router();
  * GET /account
  * Get current account details
  */
-router.get('/', authenticate, async (req: Request, res: Response) => {
+router.get('/', apiRateLimit, authenticate, async (req: Request, res: Response) => {
   try {
     const account = await accountService.getPublicAccountById(req.account!.id);
     res.json({ account });
@@ -22,7 +22,7 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
  * PATCH /account
  * Update account details
  */
-router.patch('/', authenticate, async (req: Request, res: Response) => {
+router.patch('/', apiRateLimit, authenticate, async (req: Request, res: Response) => {
   try {
     const { display_name, email } = req.body;
     
@@ -54,7 +54,7 @@ router.patch('/', authenticate, async (req: Request, res: Response) => {
  * DELETE /account
  * Delete account
  */
-router.delete('/', authenticate, async (req: Request, res: Response) => {
+router.delete('/', apiRateLimit, authenticate, async (req: Request, res: Response) => {
   try {
     const { password } = req.body;
     
@@ -84,7 +84,7 @@ router.delete('/', authenticate, async (req: Request, res: Response) => {
  * POST /account/change-password
  * Change password
  */
-router.post('/change-password', authenticate, async (req: Request, res: Response) => {
+router.post('/change-password', apiRateLimit, authenticate, async (req: Request, res: Response) => {
   try {
     const { current_password, new_password } = req.body;
     
@@ -119,7 +119,7 @@ router.post('/change-password', authenticate, async (req: Request, res: Response
  * POST /account/2fa/setup
  * Generate 2FA secret and QR code URI
  */
-router.post('/2fa/setup', authenticate, async (req: Request, res: Response) => {
+router.post('/2fa/setup', apiRateLimit, authenticate, async (req: Request, res: Response) => {
   try {
     if (req.account!.totp_enabled) {
       res.status(400).json({ error: '2FA is already enabled' });
@@ -147,7 +147,7 @@ router.post('/2fa/setup', authenticate, async (req: Request, res: Response) => {
  * POST /account/2fa/verify
  * Verify and enable 2FA
  */
-router.post('/2fa/verify', authenticate, async (req: Request, res: Response) => {
+router.post('/2fa/verify', apiRateLimit, authenticate, async (req: Request, res: Response) => {
   try {
     const { secret, code } = req.body;
     
@@ -185,7 +185,7 @@ router.post('/2fa/verify', authenticate, async (req: Request, res: Response) => 
  * POST /account/2fa/disable
  * Disable 2FA
  */
-router.post('/2fa/disable', authenticate, async (req: Request, res: Response) => {
+router.post('/2fa/disable', apiRateLimit, authenticate, async (req: Request, res: Response) => {
   try {
     const { password, code } = req.body;
     
