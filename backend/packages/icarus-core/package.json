@@ -1,0 +1,26 @@
+{
+  "name": "@trail-blaze/icarus-core",
+  "version": "1.0.0",
+  "description": "Icarus Core - Module system and runtime for Fortnite modifications",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "jest"
+  },
+  "keywords": [
+    "icarus",
+    "modules",
+    "fortnite",
+    "project-reboot"
+  ],
+  "author": "Trail Blaze",
+  "license": "BSD-3-Clause",
+  "dependencies": {
+    "@trail-blaze/flare": "^1.0.0",
+    "@trail-blaze/retroflex": "^1.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}
