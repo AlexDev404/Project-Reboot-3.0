@@ -51,7 +51,7 @@ jobs:
         with:
           name: ProjectReboot-DLL
           path: x64/Release
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 90
 
   # Build the Node.js Icarus addon
@@ -102,7 +102,7 @@ jobs:
             Project Reboot 3.0/icarus/addon/index.js
             Project Reboot 3.0/icarus/addon/index.d.ts
             Project Reboot 3.0/icarus/addon/package.json
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 90
 
   # Build addon integrated with DLL (PROJECT_REBOOT_BUILD mode)
@@ -154,7 +154,7 @@ jobs:
             Project Reboot 3.0/icarus/addon/index.js
             Project Reboot 3.0/icarus/addon/index.d.ts
             Project Reboot 3.0/icarus/addon/package.json
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 90
 
   # Package everything together

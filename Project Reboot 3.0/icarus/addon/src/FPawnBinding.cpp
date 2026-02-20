@@ -13,6 +13,7 @@
 #include "FortPlayerPawn.h"
 #include "FortPlayerControllerAthena.h"
 #include "FortInventory.h"
+#include "commands.h"
 #endif
 
 // Helper function to get pawn from ID string
@@ -542,7 +543,7 @@ Napi::Value FPawnBinding::SendMessage(const Napi::CallbackInfo& info) {
             return Napi::Boolean::New(env, false);
         }
         
-        Controller->ClientMessage(FString(message.c_str()));
+        SendMessageToConsole(Controller, FString(message.c_str()));
         return Napi::Boolean::New(env, true);
 #else
         return Napi::Boolean::New(env, true);

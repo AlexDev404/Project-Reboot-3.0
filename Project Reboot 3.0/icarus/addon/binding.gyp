@@ -43,9 +43,6 @@
               "ExceptionHandling": 1,
               "AdditionalOptions": [ "/EHsc" ],
               "RuntimeLibrary": 2
-            },
-            "VCLinkerTool": {
-              "AdditionalDependencies": []
             }
           },
           "defines": [
