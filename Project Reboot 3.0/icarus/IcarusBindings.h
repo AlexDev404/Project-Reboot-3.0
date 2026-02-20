@@ -584,8 +584,9 @@ inline JSValue FAdmin_Kick(const std::vector<JSValue>& args) {
     
     std::string reason = args.size() > 1 ? args[1].asString() : "Kicked by administrator";
     
-    // Kick the player
-    Controller->ClientReturnToMainMenuWithTextReason(FText::FromString(FString(reason.c_str())));
+    // Send kick message and kill the pawn
+    SendMessageToConsole(Controller, FString((std::wstring(L"You have been kicked: ") + std::wstring(reason.begin(), reason.end())).c_str()));
+    Pawn->SetHealth(0);
     
     return JSValue(true);
 }
@@ -615,7 +616,7 @@ inline JSValue FAdmin_Broadcast(const std::vector<JSValue>& args) {
         auto Controller = Cast<AFortPlayerControllerAthena>(PlayerState->GetOwner());
         if (!Controller) continue;
         
-        Controller->ClientMessage(FString(message.c_str()));
+        SendMessageToConsole(Controller, FString(std::wstring(message.begin(), message.end()).c_str()));
     }
     
     return JSValue(true);

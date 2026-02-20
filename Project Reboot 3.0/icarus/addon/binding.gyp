@@ -1,4 +1,7 @@
 {
+  "variables": {
+    "project_reboot_build%": "<!(node -p \"process.env.PROJECT_REBOOT_BUILD || '0'\")"
+  },
   "targets": [
     {
       "target_name": "icarus",
@@ -25,11 +28,21 @@
         "NODE_ADDON_API_ENABLE_MAYBE"
       ],
       "conditions": [
+        ["project_reboot_build=='1'", {
+          "defines": [
+            "PROJECT_REBOOT_BUILD"
+          ],
+          "include_dirs": [
+            "../../..",
+            "../../../vendor"
+          ]
+        }],
         ["OS=='win'", {
           "msvs_settings": {
             "VCCLCompilerTool": {
               "ExceptionHandling": 1,
-              "AdditionalOptions": [ "/EHsc" ]
+              "AdditionalOptions": [ "/EHsc" ],
+              "RuntimeLibrary": 2
             }
           },
           "defines": [
