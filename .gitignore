@@ -394,3 +394,8 @@ backend/packages/*/node_modules/
 backend/packages/*/dist/
 backend/.env
 backend/coverage/
+
+# Icarus addon build artifacts
+Project Reboot 3.0/icarus/addon/build/
+Project Reboot 3.0/icarus/addon/node_modules/
+Project Reboot 3.0/icarus/addon/package-lock.json
