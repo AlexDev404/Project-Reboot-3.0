@@ -9,8 +9,10 @@
  * exceptions from crashing the JavaScript runtime. The Flare is then passed
  * to the module's ErrorHandler for graceful handling.
  * 
- * In the actual implementation, these bindings are populated by the C++ runtime
- * when the JavaScript engine is initialized within Project Reboot.
+ * **Native Add-on Integration**:
+ * When running with the native add-on (@trail-blaze/icarus-addon), the bindings
+ * are automatically populated from the compiled .node file. Otherwise, the
+ * SDK operates in mock mode for development/testing.
  */
 
 import { NativeFunction, BindingRegistry } from './types';
@@ -35,13 +37,109 @@ export type NativeResult<T> =
   | { success: false; error: NativeError };
 
 /**
+ * Try to load the native add-on
+ */
+function tryLoadNativeAddon(): Record<string, unknown> | null {
+  try {
+    // Try to load the native add-on
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const addon = require('@trail-blaze/icarus-addon');
+    console.log('[Retroflex] Native add-on loaded successfully');
+    return addon;
+  } catch {
+    // Native add-on not available
+    return null;
+  }
+}
+
+/**
  * Global binding registry
- * In production, this is populated by the C++ runtime
+ * In production, this is populated by the C++ runtime or native add-on
  */
 class NativeBindings implements BindingRegistry {
   private bindings: Map<string, NativeFunction> = new Map();
   private isInitialized: boolean = false;
   private lastError: NativeError | null = null;
+  private nativeAddon: Record<string, unknown> | null = null;
+  
+  constructor() {
+    // Try to load native add-on on construction
+    this.nativeAddon = tryLoadNativeAddon();
+    if (this.nativeAddon) {
+      this.initializeFromAddon();
+    }
+  }
+  
+  /**
+   * Initialize bindings from the native add-on
+   */
+  private initializeFromAddon(): void {
+    if (!this.nativeAddon) return;
+    
+    // Map native add-on methods to binding names
+    const addonMappings: Record<string, [string, string]> = {
+      // FWorld
+      'FWorld_GetProperty': ['FWorld', 'getProperty'],
+      'FWorld_SetProperty': ['FWorld', 'setProperty'],
+      'FWorld_GetPawnList': ['FWorld', 'getPawnList'],
+      'FWorld_GetPawnById': ['FWorld', 'getPawnById'],
+      'FWorld_GetPawnByUsername': ['FWorld', 'getPawnByUsername'],
+      
+      // FPawn
+      'FPawn_Move': ['FPawn', 'move'],
+      'FPawn_Teleport': ['FPawn', 'teleport'],
+      'FPawn_SetHealth': ['FPawn', 'setHealth'],
+      'FPawn_SetShield': ['FPawn', 'setShield'],
+      'FPawn_Kill': ['FPawn', 'kill'],
+      'FPawn_SetCostume': ['FPawn', 'setCostume'],
+      'FPawn_GetLocation': ['FPawn', 'getLocation'],
+      'FPawn_GiveItem': ['FPawn', 'giveItem'],
+      'FPawn_SendMessage': ['FPawn', 'sendMessage'],
+      
+      // FGame
+      'FGame_StartMatch': ['FGame', 'startMatch'],
+      'FGame_EndMatch': ['FGame', 'endMatch'],
+      'FGame_GetMatchState': ['FGame', 'getMatchState'],
+      'FGame_SetPlayersLeft': ['FGame', 'setPlayersLeft'],
+      
+      // FStorm
+      'FStorm_GetCurrentPhase': ['FStorm', 'getCurrentPhase'],
+      'FStorm_Pause': ['FStorm', 'pause'],
+      'FStorm_Resume': ['FStorm', 'resume'],
+      'FStorm_NextPhase': ['FStorm', 'nextPhase'],
+      'FStorm_SkipToPhase': ['FStorm', 'skipToPhase'],
+      
+      // FInventory
+      'FInventory_GiveItem': ['FInventory', 'giveItem'],
+      'FInventory_RemoveItem': ['FInventory', 'removeItem'],
+      'FInventory_Clear': ['FInventory', 'clearInventory'],
+      'FInventory_GiveResources': ['FInventory', 'giveResources'],
+      
+      // FAdmin
+      'FAdmin_Kick': ['FAdmin', 'kick'],
+      'FAdmin_Ban': ['FAdmin', 'ban'],
+      'FAdmin_Broadcast': ['FAdmin', 'broadcast'],
+      'FAdmin_GetPlayers': ['FAdmin', 'getPlayers'],
+      'FAdmin_IsOperator': ['FAdmin', 'isOperator'],
+      
+      // FBots
+      'FBots_Spawn': ['FBots', 'spawn'],
+      'FBots_Remove': ['FBots', 'remove'],
+      'FBots_RemoveAll': ['FBots', 'removeAll'],
+      'FBots_GetAll': ['FBots', 'getAll'],
+      'FBots_FillLobby': ['FBots', 'fillLobby'],
+    };
+    
+    for (const [bindingName, [moduleName, methodName]] of Object.entries(addonMappings)) {
+      const module = this.nativeAddon[moduleName] as Record<string, unknown>;
+      if (module && typeof module[methodName] === 'function') {
+        this.bindings.set(bindingName, module[methodName] as NativeFunction);
+      }
+    }
+    
+    this.isInitialized = true;
+    console.log(`[Retroflex] Initialized ${this.bindings.size} bindings from native add-on`);
+  }
   
   /**
    * Register a native function from C++
@@ -142,6 +240,13 @@ class NativeBindings implements BindingRegistry {
    */
   isNativeMode(): boolean {
     return this.isInitialized;
+  }
+  
+  /**
+   * Check if native add-on is loaded
+   */
+  hasNativeAddon(): boolean {
+    return this.nativeAddon !== null;
   }
 }
 
