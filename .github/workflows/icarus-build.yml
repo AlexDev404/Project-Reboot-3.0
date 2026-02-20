@@ -1,0 +1,204 @@
+name: Build Icarus Addon
+
+on:
+  push:
+    branches: ["master"]
+    paths:
+      - 'Project Reboot 3.0/icarus/**'
+      - 'Project Reboot 3.0/*.cpp'
+      - 'Project Reboot 3.0/*.h'
+      - '.github/workflows/icarus-build.yml'
+  pull_request:
+    branches: ["master"]
+    paths:
+      - 'Project Reboot 3.0/icarus/**'
+      - 'Project Reboot 3.0/*.cpp'
+      - 'Project Reboot 3.0/*.h'
+      - '.github/workflows/icarus-build.yml'
+  workflow_dispatch:
+
+env:
+  SOLUTION_FILE_PATH: .
+  BUILD_CONFIGURATION: Release
+  NODE_VERSION: '20'
+
+permissions:
+  contents: read
+
+jobs:
+  # Build the Project Reboot DLL first
+  build-dll:
+    name: Build Project Reboot DLL
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Restore NuGet packages
+        working-directory: ${{ github.workspace }}
+        run: nuget restore ${{ env.SOLUTION_FILE_PATH }}
+
+      - name: Build Reboot DLL
+        working-directory: ${{ github.workspace }}
+        run: msbuild ${{ env.SOLUTION_FILE_PATH }} /t:Clean,Build /p:Configuration=Release
+
+      - name: Upload DLL Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ProjectReboot-DLL
+          path: x64/Release
+          if-no-files-found: warn
+          retention-days: 90
+
+  # Build the Node.js Icarus addon
+  build-addon:
+    name: Build Icarus Node Addon
+    runs-on: ${{ matrix.os }}
+    
+    strategy:
+      matrix:
+        os: [windows-latest]
+        node: ['20']
+      fail-fast: false
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Setup Python (for node-gyp)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Visual Studio Build Tools (Windows)
+        if: runner.os == 'Windows'
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Install dependencies
+        working-directory: "Project Reboot 3.0/icarus/addon"
+        run: npm install
+
+      - name: Build addon (standalone mode)
+        working-directory: "Project Reboot 3.0/icarus/addon"
+        run: npm run rebuild
+        env:
+          npm_config_msvs_version: 2022
+
+      - name: Upload addon artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: icarus-addon-${{ matrix.os }}-node${{ matrix.node }}
+          path: |
+            Project Reboot 3.0/icarus/addon/build/Release/*.node
+            Project Reboot 3.0/icarus/addon/index.js
+            Project Reboot 3.0/icarus/addon/index.d.ts
+            Project Reboot 3.0/icarus/addon/package.json
+          if-no-files-found: warn
+          retention-days: 90
+
+  # Build addon integrated with DLL (PROJECT_REBOOT_BUILD mode)
+  build-addon-integrated:
+    name: Build Icarus Addon (Integrated with DLL)
+    runs-on: windows-latest
+    needs: build-dll
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download DLL artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ProjectReboot-DLL
+          path: x64/Release
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Setup Python (for node-gyp)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Install dependencies
+        working-directory: "Project Reboot 3.0/icarus/addon"
+        run: npm install
+
+      - name: Build addon with PROJECT_REBOOT_BUILD
+        working-directory: "Project Reboot 3.0/icarus/addon"
+        run: npm run rebuild
+        env:
+          npm_config_msvs_version: 2022
+          PROJECT_REBOOT_BUILD: 1
+
+      - name: Upload integrated addon artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: icarus-addon-integrated
+          path: |
+            Project Reboot 3.0/icarus/addon/build/Release/*.node
+            Project Reboot 3.0/icarus/addon/index.js
+            Project Reboot 3.0/icarus/addon/index.d.ts
+            Project Reboot 3.0/icarus/addon/package.json
+          if-no-files-found: warn
+          retention-days: 90
+
+  # Package everything together
+  package-release:
+    name: Package Release Bundle
+    runs-on: ubuntu-latest
+    needs: [build-dll, build-addon, build-addon-integrated]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download DLL artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ProjectReboot-DLL
+          path: release/dll
+
+      - name: Download addon artifact (standalone)
+        uses: actions/download-artifact@v4
+        with:
+          name: icarus-addon-windows-latest-node20
+          path: release/addon-standalone
+
+      - name: Download addon artifact (integrated)
+        uses: actions/download-artifact@v4
+        with:
+          name: icarus-addon-integrated
+          path: release/addon-integrated
+
+      - name: Create release bundle
+        run: |
+          mkdir -p release/bundle
+          cp -r release/dll/* release/bundle/
+          mkdir -p release/bundle/icarus-addon
+          cp -r release/addon-integrated/* release/bundle/icarus-addon/
+          echo "Release bundle created successfully"
+          ls -la release/bundle/
+
+      - name: Upload release bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: ProjectReboot-Icarus-Bundle
+          path: release/bundle
+          if-no-files-found: error
+          retention-days: 90
