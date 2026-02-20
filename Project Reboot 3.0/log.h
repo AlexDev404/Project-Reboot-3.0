@@ -93,6 +93,7 @@ inline void InitLogger()
     MakeLogger("LogRebooting");
     MakeLogger("LogObjectViewer");
     MakeLogger("LogLateGame");
+    MakeLogger("LogIcarus");
 #endif
 }
 
