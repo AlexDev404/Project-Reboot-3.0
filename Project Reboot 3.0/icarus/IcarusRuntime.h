@@ -206,6 +206,11 @@ private:
     // Implementation details would include the actual JS engine context
     void* m_context = nullptr;  // JSContext* in actual implementation
     void* m_runtime = nullptr;  // JSRuntime* in actual implementation
+    
+    /**
+     * Setup the global JavaScript namespace with SDK objects
+     */
+    void setupGlobalNamespace();
 };
 
 /**
