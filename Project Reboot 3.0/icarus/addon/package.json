@@ -25,11 +25,11 @@
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "node-gyp": "^10.0.0",
+    "node-gyp": "^12.2.0",
     "typescript": "^5.0.0"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.22.0"
   },
   "gypfile": true,
   "license": "BSD-3-Clause",
