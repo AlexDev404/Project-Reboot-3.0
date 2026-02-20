@@ -37,7 +37,6 @@ NodeJSWindow::NodeJSWindow()
     , m_consoleWindow(nullptr)
     , m_platform(nullptr)
     , m_isolate(nullptr)
-    , m_context(nullptr)
     , m_env(nullptr)
 {
     LOG_INFO(LogDev, "[NodeJS] NodeJSWindow created");
