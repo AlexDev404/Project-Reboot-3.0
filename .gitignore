@@ -386,3 +386,11 @@ Project Reboot 3.0/x64/Release/Project Reboot 3.0.iobj
 *.ifc
 *.pdb
 Build/
+
+# Backend (Icarus)
+backend/node_modules/
+backend/dist/
+backend/packages/*/node_modules/
+backend/packages/*/dist/
+backend/.env
+backend/coverage/
