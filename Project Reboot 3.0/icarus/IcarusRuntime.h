@@ -198,6 +198,12 @@ public:
      */
     bool isInitialized() const { return m_initialized; }
     
+    /**
+     * Setup the global JavaScript namespace with SDK objects
+     * This creates FWorld, FPawn, FGame, etc. objects in globalThis
+     */
+    void setupGlobalNamespace();
+    
 private:
     bool m_initialized = false;
     Flare m_lastError;
