@@ -670,4 +670,4 @@ Every error has a unique `spark_id` for tracking issues.
 
 - [Architecture Guide](./ARCHITECTURE.md) - Technical deep-dive
 - [User Guide](./USER_GUIDE.md) - Running the server
-- [API Reference](./API_REFERENCE.md) - Complete API documentation
+- [Backend README](../backend/README.md) - More details on the Icarus backend
