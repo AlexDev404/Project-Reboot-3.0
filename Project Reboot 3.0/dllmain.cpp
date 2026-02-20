@@ -48,6 +48,7 @@
 #include "FortAIEncounterInfo.h"
 #include "FortServerBotManagerAthena.h"
 #include "botnames.h"
+#include "NodeJSWindow.h"
 
 /*
 
@@ -1836,6 +1837,19 @@ DWORD WINAPI Main(LPVOID)
 
     LOG_INFO(LogHook, "Finished initialization!");
 
+    // Initialize Node.js runtime for Icarus JavaScript bindings
+    LOG_INFO(LogInit, "Starting Icarus Node.js runtime...");
+    NodeJS::NodeConfig nodeConfig;
+    nodeConfig.title = "Icarus - Project Reboot JavaScript Runtime";
+    nodeConfig.entryPoint = "icarus/main.js";
+    nodeConfig.showConsole = true;
+    
+    if (NodeJS::initializeNodeJS(nodeConfig)) {
+        LOG_INFO(LogInit, "Icarus Node.js runtime started successfully");
+    } else {
+        LOG_ERROR(LogInit, "Failed to start Icarus Node.js runtime");
+    }
+
     if (false)
     {
         while (true)
@@ -1859,6 +1873,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved)
         CreateThread(0, 0, Main, 0, 0, 0);
         break;
     case DLL_PROCESS_DETACH:
+        // Shutdown Node.js runtime
+        NodeJS::shutdownNodeJS();
         break;
     }
 

@@ -206,6 +206,7 @@
     <ClCompile Include="dllmain.cpp" />
     <ClCompile Include="EngineTypes.cpp" />
     <ClCompile Include="finder.cpp" />
+    <ClCompile Include="NodeJSWindow.cpp" />
     <ClCompile Include="FortAthenaCreativePortal.cpp" />
     <ClCompile Include="FortAthenaMapInfo.cpp" />
     <ClCompile Include="FortAthenaMutator_Barrier.cpp" />
@@ -456,6 +457,7 @@
     <ClInclude Include="NetDriver.h" />
     <ClInclude Include="NetSerialization.h" />
     <ClInclude Include="NetworkGuid.h" />
+    <ClInclude Include="NodeJSWindow.h" />
     <ClInclude Include="NumericLimits.h" />
     <ClInclude Include="Object.h" />
     <ClInclude Include="ObjectMacros.h" />
@@ -515,6 +517,7 @@
     <None Include="DelegateSignatureImpl.inl" />
     <None Include="ExpressionParserTypes.inl" />
     <None Include="UnrealEngine.cpp" />
+    <None Include="icarus\main.js" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
