@@ -97,8 +97,11 @@ Napi::Value FlareBinding::Parse(const Napi::CallbackInfo& info) {
             if (info.Length() > 0 && info[0].IsObject()) {
                 Napi::Object flare = info[0].As<Napi::Object>();
                 if (flare.Has("severity")) {
-                    std::string sev = flare.Get("severity").Unwrap().As<Napi::String>().Utf8Value();
-                    return Napi::Boolean::New(env, sev == "CRITICAL");
+                    Napi::Value sevVal = flare.Get("severity").Unwrap();
+                    if (sevVal.IsString()) {
+                        std::string sev = sevVal.As<Napi::String>().Utf8Value();
+                        return Napi::Boolean::New(env, sev == "CRITICAL");
+                    }
                 }
             }
             return Napi::Boolean::New(env, false);
