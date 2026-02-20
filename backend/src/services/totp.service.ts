@@ -96,7 +96,7 @@ export class TOTPService {
   generateBackupCodes(count: number = 10): string[] {
     const codes: string[] = [];
     for (let i = 0; i < count; i++) {
-      // Generate 8 bytes of cryptographically secure random data
+      // Generate 6 bytes of cryptographically secure random data
       const randomBytes = crypto.randomBytes(6);
       // Convert to alphanumeric string
       const code = randomBytes.toString('base64').replace(/[+/=]/g, '').substring(0, 8).toUpperCase();

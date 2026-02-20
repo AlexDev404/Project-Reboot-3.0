@@ -190,11 +190,10 @@ router.post('/password-reset-request', strictRateLimit, async (req: Request, res
     // Always return success to prevent email enumeration
     if (account) {
       const token = await accountService.createPasswordResetToken(account.id);
-      // TODO: Send this token via email in production
-      // Do NOT log tokens in production - this is for development only
-      if (process.env.NODE_ENV === 'development') {
-        console.log(`[Icarus] Password reset token for ${email}: ${token}`);
-      }
+      // TODO: Implement proper email service for sending reset tokens
+      // In development, use a test email service like Ethereal or Mailtrap
+      // NEVER log tokens - they provide account access
+      void token; // Suppress unused variable warning
     }
     
     res.json({ message: 'If the email exists, a reset link will be sent' });

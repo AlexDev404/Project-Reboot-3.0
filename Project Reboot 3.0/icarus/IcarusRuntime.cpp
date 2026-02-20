@@ -134,7 +134,7 @@ void Runtime::shutdown() {
 
 void Runtime::registerFunction(const std::string& name, NativeFunction fn) {
     m_bindings[name] = fn;
-    LOG_INFO(LogDev, "[Icarus] Registered native function: {}", name);
+    LOG_INFO(LogIcarus, "Registered native function: {}", name);
 }
 
 JSValue Runtime::evaluate(const std::string& code, const std::string& filename) {
