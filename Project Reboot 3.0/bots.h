@@ -48,6 +48,7 @@ public:
 
 	static bool ShouldUseAIBotController()
 	{
+		return false;
 		return Fortnite_Version >= 11 && Engine_Version < 500;
 	}
 
@@ -139,7 +140,9 @@ public:
 
 					for (int i = 0; i < StartingItems.Num(); ++i)
 					{
-						auto& StartingItem = StartingItems.at(i);
+						auto& StartingItem = StartingItems.at(i, FItemAndCount::GetStructSize());
+
+						// TODO: Check if it is FortSmartBuildingItemDefinition
 
 						(*Inventory)->AddItem(StartingItem.GetItem(), nullptr, StartingItem.GetCount());
 					}
@@ -218,7 +221,7 @@ public:
 		PlayerState->OnRep_PlayerName(); // ?
 	}
 
-	FString GetRandomName() // Todo SetName(GetRandomName())
+	FString GetRandomName()
 	{
 		static int CurrentBotNum = 1;
 		std::wstring BotNumWStr;
@@ -231,21 +234,15 @@ public:
 		}
 		else
 		{
-			if (Fortnite_Version < 11)
+			if (Fortnite_Version < 11 || PlayerBotNames.empty())
 			{
 				BotNumWStr = std::to_wstring(CurrentBotNum++ + 200);
 				NewName = (std::format(L"Anonymous[{}]", BotNumWStr)).c_str();
 			}
 			else
 			{
-				if (!PlayerBotNames.empty())
-				{
-					// std::shuffle(PlayerBotNames.begin(), PlayerBotNames.end(), std::default_random_engine((unsigned int)time(0)));
-
-					int RandomIndex = std::rand() % (PlayerBotNames.size() - 1);
-					NewName = PlayerBotNames[RandomIndex];
-					PlayerBotNames.erase(PlayerBotNames.begin() + RandomIndex);
-				}
+				NewName = PlayerBotNames.back();
+				PlayerBotNames.pop_back();
 			}
 		}
 
@@ -314,7 +311,7 @@ public:
 		auto PlayerAbilitySet = GetPlayerAbilitySet();
 		auto AbilitySystemComponent = PlayerState->GetAbilitySystemComponent();
 
-		if (PlayerAbilitySet)
+		if (PlayerAbilitySet && AbilitySystemComponent)
 		{
 			PlayerAbilitySet->GiveToAbilitySystem(AbilitySystemComponent);
 		}
@@ -323,11 +320,16 @@ public:
 		PickRandomLoadout();
 		ApplyCosmeticLoadout();
 
-		GameState->GetPlayersLeft()++;
-		GameState->OnRep_PlayersLeft();
+		if (!ShouldUseAIBotController())
+		{
+			++GameState->GetPlayersLeft();
+			GameState->OnRep_PlayersLeft();
+		}
 
 		if (auto FortPlayerControllerAthena = Cast<AFortPlayerControllerAthena>(Controller))
+		{
 			GameMode->GetAlivePlayers().Add(FortPlayerControllerAthena);
+		}
 
 		LOG_INFO(LogDev, "Finished spawning bot!")
 	}

@@ -73,6 +73,8 @@ void Addresses::SetupVersion()
 
 		if (Fortnite_Version >= 16.00 && Fortnite_Version <= 18.40)
 			Engine_Version = 427; // 4.26.1;
+
+		// TODO: Fortnite_CL = X
 	}
 
 	else
@@ -94,6 +96,10 @@ void Addresses::SetupVersion()
 		Fortnite_Version = 1.72;
 	if (Fortnite_CL == 3724489)
 		Fortnite_Version = 1.8;
+	if (Fortnite_CL == 3729133)
+		Fortnite_Version = 1.8; // 1.8.1
+	if (Fortnite_CL == 3741772)
+		Fortnite_Version = 1.8; // 1.8.2
 	if (Fortnite_CL == 3757339)
 		Fortnite_Version = 1.9;
 	if (Fortnite_CL == 3775276)
@@ -256,9 +262,6 @@ void Addresses::FindAll()
 	LOG_INFO(LogDev, "Finding StepExplicitProperty");
 	Addresses::FrameStepExplicitProperty = FindStepExplicitProperty();
 
-	LOG_INFO(LogDev, "Finding Free");
-	Addresses::Free = FindFree();
-
 	LOG_INFO(LogDev, "Finding ClearAbility");
 	Addresses::ClearAbility = FindClearAbility();
 
@@ -331,8 +334,8 @@ void Addresses::FindAll()
 	LOG_INFO(LogDev, "Finished finding!");
 }
 
-#define PRINT_CRITICAL_OFFSET(offset) if (!offset) LOG_ERROR(LogDev, "Failed to find {}", #offset) \
-	else LOG_INFO(LogDev, "{}: 0x{:x}", #offset, offset - __int64(GetModuleHandleW(0)));
+#define PRINT_CRITICAL_OFFSET(offset) if (!offset) { LOG_ERROR(LogDev, "Failed to find {}", #offset) } \
+	else { LOG_INFO(LogDev, "{}: 0x{:x}", #offset, offset - __int64(GetModuleHandleW(0))) };
 
 void Addresses::Print()
 {
@@ -384,7 +387,6 @@ void Addresses::Print()
 	LOG_INFO(LogDev, "RemoveFromAlivePlayers: 0x{:x}", RemoveFromAlivePlayers - Base);
 	LOG_INFO(LogDev, "ActorChannelClose: 0x{:x}", ActorChannelClose - Base);
 	LOG_INFO(LogDev, "FrameStepExplicitProperty: 0x{:x}", FrameStepExplicitProperty - Base);
-	LOG_INFO(LogDev, "Free: 0x{:x}", Free - Base);
 	LOG_INFO(LogDev, "ClearAbility: 0x{:x}", ClearAbility - Base);
 	LOG_INFO(LogDev, "ApplyGadgetData: 0x{:x}", ApplyGadgetData - Base);
 	LOG_INFO(LogDev, "RemoveGadgetData: 0x{:x}", RemoveGadgetData - Base);
@@ -410,7 +412,8 @@ void Addresses::Print()
 
 void Offsets::FindAll()
 {
-	Offsets::Offset_Internal = Fortnite_Version >= 12.10 && std::floor(Fortnite_Version) < 20 ? 0x4C : 0x44;
+	Offsets::Offset_Internal = Fortnite_Version >= 24 ? 0x3C 
+		: Fortnite_Version >= 12.10 && std::floor(Fortnite_Version) < 20 ? 0x4C : 0x44;
 	Offsets::SuperStruct = Engine_Version >= 422 ? 0x40 : 0x30;
 	Offsets::Children = Fortnite_Version >= 12.10 ? 0x50 : Offsets::SuperStruct + 8;
 	Offsets::PropertiesSize = Offsets::Children + 8;
@@ -443,7 +446,9 @@ void Offsets::FindAll()
 		Offsets::ServerReplicateActors = 0x5E;
 	else if (Fortnite_Version >= 15.3 && Engine_Version < 500) // 15.3-18 = 0x5F
 		Offsets::ServerReplicateActors = 0x5F;
-	else if (std::floor(Fortnite_Version) >= 19 && std::floor(Fortnite_Version) <= 20)
+	else if (Fortnite_Version >= 19.20 && Fortnite_Version <= 20)
+		Offsets::ServerReplicateActors = 0x65;
+	else if (Fortnite_Version >= 19 && Fortnite_Version <= 19.10)
 		Offsets::ServerReplicateActors = 0x66;
 	else if (std::floor(Fortnite_Version) >= 21)
 		Offsets::ServerReplicateActors = 0x67; // checked onb 22.30
@@ -510,9 +515,28 @@ void Offsets::FindAll()
 	{
 		Offsets::ReplicationFrame = 0x3D8;
 	}
+	if (std::floor(Fortnite_Version) == 22)
+	{
+		Offsets::ReplicationFrame = 0x428; // checked only on 22.30
+	}
+	if (Fortnite_Version >= 23)
+	{
+		Offsets::ReplicationFrame = 0x440; // checked on 23.40 & 23.50 & 24.00 & 24.10 & 24.30 & 24.40
+	}
+	if (Fortnite_Version == 24.20) // GG
+	{
+		Offsets::ReplicationFrame = 0x438;
+	}
 
 	Offsets::IsNetRelevantFor = FindIsNetRelevantForOffset();
 	Offsets::Script = Offsets::Children + 8 + 4 + 4;
+
+	Offsets::PropName = Fortnite_Version >= 12.10 
+		? Fortnite_Version >= 24 ? 0x20 
+		: 0x28 : 0x18;
+	Offsets::Next = Fortnite_Version >= 12.10 
+		? Fortnite_Version >= 24 ? 0x18 
+		: 0x20 : 0x28;
 }
 
 void Offsets::Print()
@@ -591,6 +615,10 @@ std::vector<uint64> Addresses::GetFunctionsToNull()
 
 	if (Engine_Version == 416)
 	{
+		toNull.push_back(Memcury::Scanner::FindPattern("4C 89 44 24 ? 88 54 24 ? 48 89 4C 24 ? 56 57 48 81 EC ? ? ? ? 33 C0 83 F8 ? 0F 84 ? ? ? ? B8").Get()); // 1.8 switch state
+		// toNull.push_back(Memcury::Scanner::FindPattern("48 89 4C 24 ? 48 81 EC ? ? ? ? 48 8B 84 24 ? ? ? ? 48 8B 00 48 8B 8C 24 ? ? ? ? FF 90 ? ? ? ? 48 89 84 24 ? ? ? ? 48 8B 84 24 ? ? ? ? 48 8B 80 ? ? ? ? 48 89 44 24 ? 48 83 7C 24 ? ? 74 1D 48 8B").Get()); // trigger ui stuff 1.8 & 1.9
+		// toNull.push_back(Memcury::Scanner::FindPattern("48 89 4C 24 ? 48 81 EC ? ? ? ? 48 8B 84 24 ? ? ? ? 48 8B 00 48 8B 8C 24 ? ? ? ? FF 90 ? ? ? ? 48 89 84 24 ? ? ? ? 48 8B 84 24 ? ? ? ? 48 8B 80 ? ? ? ? 48 89 44 24 ? 48 83 7C 24 ? ? 74 1D 48 8B", true, 1).Get()); // trigger ui stuff 1.8 & 1.9 ^^
+		toNull.push_back(Memcury::Scanner::FindPattern("48 89 54 24 ? 48 89 4C 24 ? 55 53 57 48 8D 6C 24 ? 48 81 EC ? ? ? ? 8B 41 ? C1 E8 ? A8 ? 0F 84 ? ? ? ? 80 3D").Get()); // widget class 1.8
 		toNull.push_back(Memcury::Scanner::FindPattern("48 89 54 24 ? 48 89 4C 24 ? 55 53 57 48 8D 6C 24 ? 48 81 EC ? ? ? ? 8B 41 08 C1 E8 05").Get()); // Widget class
 	}
 
@@ -608,7 +636,11 @@ std::vector<uint64> Addresses::GetFunctionsToNull()
 	if (Engine_Version == 421)
 	{
 		toNull.push_back(Memcury::Scanner::FindPattern("48 8B C4 48 89 58 08 48 89 70 10 57 48 81 EC ? ? ? ? 48 8B BA ? ? ? ? 48 8B DA 0F 29").Get()); // Pawn Overlap
-		toNull.push_back(Memcury::Scanner::FindStringRef(L"Widget Class %s - Running Initialize On Archetype, %s.").ScanFor({ 0x40, 0x55 }, false).Get()); // Widget class
+
+		std::vector<uint8_t> BytesToFind = Fortnite_Version < 6.3 ? std::vector<uint8_t>{ 0x40, 0x55 } : std::vector<uint8_t>{ 0x48, 0x89, 0x5C };
+
+		toNull.push_back(Memcury::Scanner::FindStringRef(L"Widget Class %s - Running Initialize On Archetype, %s.").ScanFor(BytesToFind, false).Get()); // Widget class
+		toNull.push_back(Memcury::Scanner::FindPattern("48 89 5C 24 ? 48 89 74 24 ? 48 89 7C 24 ? 41 56 48 83 EC 30 41 0F B6 F0 48 8D 15 ? ? ? ? 48 8B F9 41 B8").Get()); // Update Rich Presence
 	}
 
 	if (Engine_Version >= 422 
@@ -674,6 +706,25 @@ std::vector<uint64> Addresses::GetFunctionsToNull()
 			toNull.push_back(Memcury::Scanner::FindPattern("48 89 5C 24 ? 48 89 6C 24 ? 48 89 74 24 ? 57 41 ? 41 ? 48 83 EC 60 45 33 F6 4C 8D ? ? ? ? ? 48 8B DA").Get()); // crash 2 (20.40 & 21.00)
 		}
 	}
+
+#if 0 // untested
+	auto BeginPlayPedestalStrRef = Memcury::Scanner::FindStringRef("AFortTeamMemberPedestal::BeginPlay - Begun play on pedestal %s");
+
+	if (BeginPlayPedestalStrRef.Get())
+	{
+		auto Start = BeginPlayPedestalStrRef.ScanFor({ 0x40, 0x53, 0x41, 0x56 }, false);
+		LOG_INFO(LogDev, "BeginPlayPedestal Start: 0x{:x}", Start);
+		toNull.push_back(Start.Get());
+	}
+#else
+	auto BeginPlayPedestalScanner = Memcury::Scanner::FindPattern("40 53 41 56 48 83 EC 48 48 89 6C 24 ? 48 8B D9 48 89 74 24 ? 48 89 7C 24");
+
+	if (auto BeginPlayPedestal = BeginPlayPedestalScanner.Get())
+	{
+		LOG_INFO(LogDev, "BeginPlayPedestal Start: 0x{:x}", BeginPlayPedestal - __int64(GetModuleHandleW(0)));
+		toNull.push_back(BeginPlayPedestal);
+	}
+#endif
 
 	toNull.push_back(Addresses::ChangeGameSessionId);
 

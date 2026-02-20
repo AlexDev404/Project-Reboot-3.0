@@ -24,6 +24,13 @@ template <typename T = UObject>
 static inline T* FindObject(const TCHAR* Name, UClass* Class = nullptr, UObject* Outer = nullptr)
 {
 	auto res = (T*)StaticFindObject/*<T>*/(Class, Outer, Name);
+	/*
+	if (!res)
+	{
+		std::wstring NameWStr = std::wstring(Name);
+		LOG_WARN(LogDev, "Failed to find object: {}", std::string(NameWStr.begin(), NameWStr.end()));
+	}
+	*/
 	return res;
 }
 
@@ -41,7 +48,8 @@ static inline T* LoadObject(const TCHAR* Name, UClass* Class = T::StaticClass(),
 
 	if (!Object)
 	{
-		LOG_WARN(LogDev, "Failed to load object!");
+		std::wstring NameWStr = std::wstring(Name);
+		LOG_WARN(LogDev, "Failed to load object: {}!", std::string(NameWStr.begin(), NameWStr.end()));
 	}
 
 	return Object;
@@ -58,8 +66,9 @@ template <typename T = UObject>
 static inline T* FindObject(const std::string& NameStr, UClass* Class = nullptr, UObject* Outer = nullptr)
 {
 	std::string name = NameStr;
-	auto NameCWSTR = std::wstring(name.begin(), name.end()).c_str();
-	return StaticFindObject<T>(Class, Outer, NameCWSTR);
+	auto NameWStr = std::wstring(name.begin(), name.end());
+	auto NameCWStr = NameWStr.c_str();
+	return StaticFindObject<T>(Class, Outer, NameCWStr);
 }
 
 static inline UEngine* GetEngine()
@@ -70,7 +79,7 @@ static inline UEngine* GetEngine()
 	{
 		__int64 starting = 2147482000;
 
-		for (__int64 i = starting; i < (starting + 1000); i++)
+		for (__int64 i = starting; i < (starting + 1000); ++i)
 		{
 			if (Engine = FindObject<UEngine>("/Engine/Transient.FortEngine_" + std::to_string(i)))
 				break;
@@ -85,6 +94,8 @@ static inline class UWorld* GetWorld()
 	static UObject* Engine = GetEngine();
 	static auto GameViewportOffset = Engine->GetOffset("GameViewport");
 	auto GameViewport = Engine->Get<UObject*>(GameViewportOffset);
+
+	if (!GameViewport) return nullptr;
 
 	static auto WorldOffset = GameViewport->GetOffset("World");
 
@@ -152,6 +163,8 @@ inline uint8_t GetFieldMask(void* Property, int additional = 0)
 
 	// 3 = sizeof(FieldSize) + sizeof(ByteOffset) + sizeof(ByteMask)
 
+	if (Fortnite_Version >= 24)
+		return *(uint8_t*)(__int64(Property) + (0x6B + additional));
 	if (Engine_Version <= 424 || Fortnite_Version >= 20)
 		return *(uint8_t*)(__int64(Property) + (112 + 3 + additional));
 	else if (Engine_Version >= 425)
@@ -282,7 +295,7 @@ inline void* FindPropertyStruct(const std::string& StructName, const std::string
 					return Property;
 				}
 
-				Property = Engine_Version >= 425 ? *(void**)(__int64(Property) + 0x20) : ((UField*)Property)->Next;
+				Property = GetNext(Property);
 				PropName = Property ? GetFNameOfProp(Property)->ToString() : "";
 			}
 		}
@@ -403,6 +416,7 @@ namespace MemberOffsets
 	namespace DeathInfo
 	{
 		extern inline int bDBNO = 0, Downer = 0, FinisherOrDowner = 0, DeathCause = 0, Distance = 0, DeathLocation = 0, bInitialized = 0, DeathTags = 0;
+		extern inline bool bIsWeakFinisherOrDowner = false;
 	}
 }
 

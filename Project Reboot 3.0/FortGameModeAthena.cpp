@@ -181,10 +181,12 @@ void AFortGameModeAthena::HandleSpawnRateForActorClass(UClass* ActorClass, float
 
 void AFortGameModeAthena::StartAircraftPhase()
 {
-	if (Addresses::StartAircraftPhase)
+	if (Addresses::StartAircraftPhase 
+		&& Fortnite_Version < 24 // ig they load or sometrhing gg
+		) 
 	{
 		static void (*StartAircraftPhaseOriginal)(AFortGameModeAthena*, bool bDoNotSpawnAircraft) = decltype(StartAircraftPhaseOriginal)(Addresses::StartAircraftPhase);
-		StartAircraftPhaseOriginal(this, false); // love the double negative fortnite
+		StartAircraftPhaseOriginal(this, false); // love the double negative Fortnite
 	}
 	else
 	{
@@ -237,7 +239,7 @@ void AFortGameModeAthena::OverrideSupplyDrop(AFortGameStateAthena* GameState, UC
 
 	if (!MapInfo)
 	{
-		LOG_WARN(LogGame, "No MapInfo!");
+		LOG_WARN(LogGame, "[OverrideSupplyDrop] No MapInfo!");
 		return;
 	}
 
@@ -247,6 +249,13 @@ void AFortGameModeAthena::OverrideSupplyDrop(AFortGameStateAthena* GameState, UC
 		return;
 
 	auto& SupplyDropInfoList = MapInfo->Get<TArray<UFortSupplyDropInfo*>>(SupplyDropInfoListOffset);
+
+	if (SupplyDropInfoList.Num() == 0)
+	{
+		LOG_WARN(LogGame, "No SupplyDropInfoList!");
+		return;
+	}
+
 	auto FirstSupplyDropInfo = SupplyDropInfoList.at(0);
 
 	if (!FirstSupplyDropInfo)
@@ -533,7 +542,7 @@ bool AFortGameModeAthena::Athena_ReadyToStartMatchHook(AFortGameModeAthena* Game
 
 					if (AdditionalLevelsServerOnlyOffset != -1)
 					{
-						/* TArray<TSoftObjectPtr<UWorld>>& AdditionalLevelsServerOnly = CurrentPlaylist->Get<TArray<TSoftObjectPtr<UWorld>>>(AdditionalLevelsServerOnlyOffset);
+						TArray<TSoftObjectPtr<UWorld>>& AdditionalLevelsServerOnly = CurrentPlaylist->Get<TArray<TSoftObjectPtr<UWorld>>>(AdditionalLevelsServerOnlyOffset);
 						LOG_INFO(LogPlaylist, "Loading {} playlist server levels.", AdditionalLevelsServerOnly.Num());
 
 						for (int i = 0; i < AdditionalLevelsServerOnly.Num(); i++)
@@ -544,7 +553,7 @@ bool AFortGameModeAthena::Athena_ReadyToStartMatchHook(AFortGameModeAthena* Game
 							auto LevelNameWStr = std::wstring(LevelNameStr.begin(), LevelNameStr.end());
 
 							GameState->AddToAdditionalPlaylistLevelsStreamed(LevelFName, true);
-						} */
+						} 
 					}
 
 					LOG_INFO(LogPlaylist, "Loading {} playlist levels.", AdditionalLevels.Num());
@@ -571,10 +580,27 @@ bool AFortGameModeAthena::Athena_ReadyToStartMatchHook(AFortGameModeAthena* Game
 						// There is another array of the ULevelStreaming, and I don't think this gets filled by the OnRep (since really our way is hacky as the OnRep has the implementation)
 					}
 
+
 					static auto OnRep_AdditionalPlaylistLevelsStreamedFn = FindObject<UFunction>(L"/Script/FortniteGame.FortGameState.OnRep_AdditionalPlaylistLevelsStreamed");
+					static auto OnFinishedStreamingAdditionalPlaylistLevelFn = FindObject<UFunction>(L"/Script/FortniteGame.FortGameState.OnFinishedStreamingAdditionalPlaylistLevel");
+					static auto HandleAllPlaylistLevelsVisibleFn = FindObject<UFunction>(L"/Script/FortniteGame.FortGameState.HandleAllPlaylistLevelsVisible");
 
 					if (OnRep_AdditionalPlaylistLevelsStreamedFn)
 						GameState->ProcessEvent(OnRep_AdditionalPlaylistLevelsStreamedFn);
+
+					if (OnFinishedStreamingAdditionalPlaylistLevelFn)
+						GameState->ProcessEvent(OnFinishedStreamingAdditionalPlaylistLevelFn);
+
+					if (HandleAllPlaylistLevelsVisibleFn)
+						GameState->ProcessEvent(HandleAllPlaylistLevelsVisibleFn);
+
+				}
+
+				if (Fortnite_Version >= 11.00)
+				{
+
+					SetupEverythingAI();
+
 				}
 			}
 		}
@@ -702,26 +728,31 @@ bool AFortGameModeAthena::Athena_ReadyToStartMatchHook(AFortGameModeAthena* Game
 		}
 	}
 
-	static auto FortPlayerStartCreativeClass = FindObject<UClass>(L"/Script/FortniteGame.FortPlayerStartCreative");
-	static auto FortPlayerStartWarmupClass = FindObject<UClass>(L"/Script/FortniteGame.FortPlayerStartWarmup");
-	TArray<AActor*> Actors = UGameplayStatics::GetAllActorsOfClass(GetWorld(), Globals::bCreative ? FortPlayerStartCreativeClass : FortPlayerStartWarmupClass);
+	constexpr bool bIsAthenaMap = true;
 
-	int ActorsNum = Actors.Num();
-
-	Actors.Free();
-
-	if (ActorsNum == 0)
+	if (bIsAthenaMap)
 	{
-		// LOG_INFO(LogDev, "No Actors!");
-		return false;
+		static auto FortPlayerStartCreativeClass = FindObject<UClass>(L"/Script/FortniteGame.FortPlayerStartCreative");
+		static auto FortPlayerStartWarmupClass = FindObject<UClass>(L"/Script/FortniteGame.FortPlayerStartWarmup");
+		TArray<AActor*> Actors = UGameplayStatics::GetAllActorsOfClass(GetWorld(), Globals::bCreative ? FortPlayerStartCreativeClass : FortPlayerStartWarmupClass);
+
+		int ActorsNum = Actors.Num();
+
+		Actors.Free();
+
+		if (ActorsNum == 0)
+		{
+			// LOG_INFO(LogDev, "No Actors!");
+			return false;
+		}
 	}
 	
 	// I don't think this map info check is proper.. We can loop through the Actors in the World's PersistentLevel and check if there is a MapInfo, if there is then we can wait, else don't.
 
 	auto MapInfo = GameState->GetMapInfo();
 
-	if (Engine_Version >= 421 && // todo recheck this version 
-		!MapInfo
+	if (Engine_Version >= 421 // todo recheck this version 
+		&& (bIsAthenaMap ? !MapInfo : false)
 		)
 		return false;
 
@@ -1307,6 +1338,18 @@ void AFortGameModeAthena::Athena_HandleStartingNewPlayerHook(AFortGameModeAthena
 			{
 				OverrideBattleBusSkin = FindObject(L"/Game/Athena/Items/Cosmetics/BattleBuses/BBID_WorldCupBus.BBID_WorldCupBus"); // World Cup
 			}
+			else if (Fortnite_Version == 14.30) 
+			{
+				OverrideBattleBusSkin = FindObject(L"/Game/Athena/Items/Cosmetics/BattleBuses/BBID_BusUpgrade1.BBID_BusUpgrade1");
+			}
+			else if (Fortnite_Version == 14.50) 
+			{
+				OverrideBattleBusSkin = FindObject(L"/Game/Athena/Items/Cosmetics/BattleBuses/BBID_BusUpgrade2.BBID_BusUpgrade2");
+			}
+			else if (Fortnite_Version == 14.60) 
+			{
+				OverrideBattleBusSkin = FindObject(L"/Game/Athena/Items/Cosmetics/BattleBuses/BBID_BusUpgrade3.BBID_BusUpgrade3");
+			}			
 
 			if (OverrideBattleBusSkin)
 				OverrideBattleBus(GameState, OverrideBattleBusSkin);
@@ -1377,13 +1420,13 @@ void AFortGameModeAthena::Athena_HandleStartingNewPlayerHook(AFortGameModeAthena
 			}
 
 #if 1
-			LOG_INFO(LogDev, "Spawning loot!");
-
 			auto SpawnIsland_FloorLoot = FindObject<UClass>(L"/Game/Athena/Environments/Blueprints/Tiered_Athena_FloorLoot_Warmup.Tiered_Athena_FloorLoot_Warmup_C");
 			auto BRIsland_FloorLoot = FindObject<UClass>(L"/Game/Athena/Environments/Blueprints/Tiered_Athena_FloorLoot_01.Tiered_Athena_FloorLoot_01_C");
 
 			TArray<AActor*> SpawnIsland_FloorLoot_Actors = UGameplayStatics::GetAllActorsOfClass(GetWorld(), SpawnIsland_FloorLoot);
 			TArray<AActor*> BRIsland_FloorLoot_Actors = UGameplayStatics::GetAllActorsOfClass(GetWorld(), BRIsland_FloorLoot);
+
+			LOG_INFO(LogDev, "Spawning floor loot ({} warmup, {} island)!", SpawnIsland_FloorLoot_Actors.Num(), BRIsland_FloorLoot_Actors.Num());
 
 			auto SpawnIslandTierGroup = UKismetStringLibrary::Conv_StringToName(L"Loot_AthenaFloorLoot_Warmup");
 			auto BRIslandTierGroup = UKismetStringLibrary::Conv_StringToName(L"Loot_AthenaFloorLoot");
@@ -1393,14 +1436,14 @@ void AFortGameModeAthena::Athena_HandleStartingNewPlayerHook(AFortGameModeAthena
 			bool bDestroyFloorLootActor = false;
 			bool bPrintWarmup = bDebugPrintFloorLoot;
 
-			for (int i = 0; i < SpawnIsland_FloorLoot_Actors.Num(); i++)
+			for (int i = 0; i < SpawnIsland_FloorLoot_Actors.Num(); ++i)
 			{
 				ABuildingContainer* CurrentActor = (ABuildingContainer*)SpawnIsland_FloorLoot_Actors.at(i);
 				auto Location = CurrentActor->GetActorLocation() + CurrentActor->GetActorForwardVector() * CurrentActor->GetLootSpawnLocation_Athena().X + CurrentActor->GetActorRightVector() * CurrentActor->GetLootSpawnLocation_Athena().Y + CurrentActor->GetActorUpVector() * CurrentActor->GetLootSpawnLocation_Athena().Z;
 
 				std::vector<LootDrop> LootDrops = PickLootDrops(SpawnIslandTierGroup, GameState->GetWorldLevel(), -1, bPrintWarmup);
 
-				for (auto& LootDrop : LootDrops)
+				for (LootDrop& LootDrop : LootDrops)
 				{
 					PickupCreateData CreateData;
 					CreateData.bToss = true;
@@ -1421,7 +1464,7 @@ void AFortGameModeAthena::Athena_HandleStartingNewPlayerHook(AFortGameModeAthena
 
 			int spawned = 0;
 
-			for (int i = 0; i < BRIsland_FloorLoot_Actors.Num(); i++)
+			for (int i = 0; i < BRIsland_FloorLoot_Actors.Num(); ++i)
 			{
 				ABuildingContainer* CurrentActor = (ABuildingContainer*)BRIsland_FloorLoot_Actors.at(i);
 				spawned++;
@@ -1451,6 +1494,29 @@ void AFortGameModeAthena::Athena_HandleStartingNewPlayerHook(AFortGameModeAthena
 
 			SpawnIsland_FloorLoot_Actors.Free();
 			BRIsland_FloorLoot_Actors.Free();
+
+#if 0
+			if (Fortnite_Version >= 23) // Partitioning real
+			{
+				auto& StreamingLevels = GetWorld()->GetStreamingLevels();
+
+				for (int i = 0; i < StreamingLevels.Num(); ++i)
+				{
+					auto StreamingLevel = StreamingLevels.At(i);
+
+					static auto SetIsRequestingUnloadAndRemovalFn = FindObject<UFunction>(L"/Script/Engine.LevelStreaming.SetIsRequestingUnloadAndRemoval");
+					static auto SetShouldBeLoadedFn = FindObject<UFunction>(L"/Script/Engine.LevelStreaming.SetShouldBeLoaded");
+					static auto SetShouldBeVisibleFn = FindObject<UFunction>(L"/Script/Engine.LevelStreaming.SetShouldBeVisible");
+
+					bool bTrue = true;
+					bool bFalse = false;
+
+					StreamingLevel->ProcessEvent(SetShouldBeLoadedFn, &bTrue);
+					StreamingLevel->ProcessEvent(SetShouldBeVisibleFn, &bTrue);
+					StreamingLevel->ProcessEvent(SetIsRequestingUnloadAndRemovalFn, &bFalse);
+				}
+			}
+#endif
 
 			LOG_INFO(LogDev, "Spawned loot!");
 #endif

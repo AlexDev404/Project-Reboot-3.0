@@ -4,6 +4,10 @@
 #include "Object.h"
 #include "Class.h"
 
+#include "SoftObjectPath.h"
+#include "SoftObjectPtr.h"
+#include "Texture2D.h"
+
 #include "reboot.h"
 
 class UFortItemDefinition : public UObject
@@ -17,6 +21,18 @@ public:
 		static auto bAllowMultipleStacksOffset = GetOffset("bAllowMultipleStacks");
 		static auto bAllowMultipleStacksFieldMask = GetFieldMask(GetProperty("bAllowMultipleStacks"));
 		return ReadBitfieldValue(bAllowMultipleStacksOffset, bAllowMultipleStacksFieldMask);
+	}
+
+	FSoftObjectPath& GetDisplayAssetPath()
+	{
+		static auto DisplayAssetPathOffset = GetOffset("DisplayAssetPath");
+		return Get<FSoftObjectPath>(DisplayAssetPathOffset);
+	}
+
+	TSoftObjectPtr<UTexture2D>& GetLargePreviewImage()
+	{
+		static auto LargePreviewImageOffset = GetOffset("LargePreviewImage");
+		return Get<TSoftObjectPtr<UTexture2D>>(LargePreviewImageOffset);
 	}
 
 	static UClass* StaticClass()
@@ -42,4 +58,13 @@ public:
 	{
 		return Item;
 	}
+
+
+	static UStruct* GetStruct()
+	{
+		static auto Struct = FindObject<UStruct>(L"/Script/FortniteGame.ItemAndCount");
+		return Struct;
+	}
+
+	static int GetStructSize() { return GetStruct()->GetPropertiesSize(); }
 };

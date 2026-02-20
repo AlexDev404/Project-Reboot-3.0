@@ -570,6 +570,8 @@ UObject* UFortKismetLibrary::GetAIGoalManagerHook(UObject* Context, FFrame& Stac
 
 AFortPickup* UFortKismetLibrary::K2_SpawnPickupInWorldHook(UObject* Context, FFrame& Stack, AFortPickup** Ret)
 {
+	static auto OptionalOwnerPCOffset = FindOffsetStruct("/Script/FortniteGame.FortKismetLibrary.K2_SpawnPickupInWorld", "OptionalOwnerPC", false);
+
 	UObject* WorldContextObject;                                       // (Parm, ZeroConstructor, IsPlainOldData, NoDestructor, HasGetValueTypeHash, NativeAccessSpecifierPublic)
 	UFortWorldItemDefinition* ItemDefinition;                                           // (Parm, ZeroConstructor, IsPlainOldData, NoDestructor, HasGetValueTypeHash, NativeAccessSpecifierPublic)
 	int                                                NumberToSpawn;                                            // (Parm, ZeroConstructor, IsPlainOldData, NoDestructor, HasGetValueTypeHash, NativeAccessSpecifierPublic)
@@ -605,7 +607,7 @@ AFortPickup* UFortKismetLibrary::K2_SpawnPickupInWorldHook(UObject* Context, FFr
 	if (!ItemDefinition->IsValidLowLevel())
 		return K2_SpawnPickupInWorldOriginal(Context, Stack, Ret);
 
-	auto Pawn = OptionalOwnerPC ? OptionalOwnerPC->GetMyFortPawn() : nullptr;
+	auto Pawn = OptionalOwnerPCOffset != -1 && OptionalOwnerPC ? OptionalOwnerPC->GetMyFortPawn() : nullptr;
 
 	auto GameState = Cast<AFortGameStateAthena>(GetWorld()->GetGameState());
 
@@ -616,7 +618,6 @@ AFortPickup* UFortKismetLibrary::K2_SpawnPickupInWorldHook(UObject* Context, FFr
 	CreateData.bRandomRotation = bRandomRotation;
 	CreateData.PawnOwner = Pawn;
 	CreateData.bShouldFreeItemEntryWhenDeconstructed = true;
-	CreateData.PawnOwner = OptionalOwnerPC ? OptionalOwnerPC->GetMyFortPawn() : nullptr;
 
 	auto NewPickup = AFortPickup::SpawnPickup(CreateData);
 

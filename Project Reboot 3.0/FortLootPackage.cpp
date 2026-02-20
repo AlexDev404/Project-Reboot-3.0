@@ -27,6 +27,7 @@ void CollectDataTablesRows(const std::vector<UDataTable*>& DataTables, LOOTING_M
     {
         if (!Addresses::LoadAsset && !DataTable->IsValidLowLevel())
         {
+            // LOG_INFO(LogDev, "INvalid table!");
             continue; // Remove from vector?
         }
 
@@ -372,7 +373,9 @@ std::vector<LootDrop> PickLootDrops(FName TierGroupName, int WorldLevel, int For
 {
     std::vector<LootDrop> LootDrops;
 
-    if (recursive > 6)
+    if (!TierGroupName.IsValid() 
+        || Fortnite_Version >= 23 // RANDOMC RASH BRO???
+        || recursive > 6)
         return LootDrops;
 
     auto GameState = ((AFortGameModeAthena*)GetWorld()->GetGameMode())->GetGameStateAthena();
@@ -394,7 +397,7 @@ std::vector<LootDrop> PickLootDrops(FName TierGroupName, int WorldLevel, int For
         LTDTables.clear();
         LPTables.clear();
 
-        if (Fortnite_Version == 12.00)
+        if (Fortnite_Version == 12.00) // TODO
             return LootDrops;
 
         bool bFoundPlaylistTable = false;
@@ -625,7 +628,11 @@ std::vector<LootDrop> PickLootDrops(FName TierGroupName, int WorldLevel, int For
 
     if (!Addresses::LoadAsset)
     {
-        if (Fortnite_Version <= 6 || std::floor(Fortnite_Version) == 9) // the tables unload!
+        if (Fortnite_Version <= 6 
+            || std::floor(Fortnite_Version) == 9
+            || Fortnite_Version == 10.00 // the tables unload!
+            // || Fortnite_Version >= 22
+            )
         {
             LTDTables.clear();
             LPTables.clear();
