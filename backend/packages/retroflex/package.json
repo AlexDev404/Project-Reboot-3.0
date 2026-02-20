@@ -1,0 +1,22 @@
+{
+  "name": "@trail-blaze/retroflex",
+  "version": "1.0.0",
+  "description": "Fortnite SDK - TypeScript bindings for Project Reboot C++ functions",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "jest"
+  },
+  "keywords": [
+    "fortnite",
+    "sdk",
+    "bindings",
+    "project-reboot"
+  ],
+  "author": "Trail Blaze",
+  "license": "BSD-3-Clause",
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}

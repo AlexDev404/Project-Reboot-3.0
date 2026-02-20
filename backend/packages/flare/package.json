@@ -1,0 +1,21 @@
+{
+  "name": "@trail-blaze/flare",
+  "version": "1.0.0",
+  "description": "Flare - Structured error handling system for Icarus modules",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "jest"
+  },
+  "keywords": [
+    "error-handling",
+    "flare",
+    "icarus"
+  ],
+  "author": "Trail Blaze",
+  "license": "BSD-3-Clause",
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}
