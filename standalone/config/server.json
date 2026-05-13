@@ -1,0 +1,31 @@
+{
+  "server": {
+    "name": "Project Reboot 3.0",
+    "port": 7777,
+    "maxPlayers": 100,
+    "tickRate": 30.0,
+    "playlist": "/Game/Athena/Playlists/Playlist_DefaultSolo.Playlist_DefaultSolo",
+    "pakDirectory": "./paks",
+    "configDirectory": "./config"
+  },
+  "game": {
+    "infiniteMaterials": false,
+    "infiniteAmmo": false,
+    "lateGame": false,
+    "enableBots": false
+  },
+  "discord": {
+    "enabled": false,
+    "webhookUrl": ""
+  },
+  "storm": [
+    {"waitTime": 120, "shrinkTime": 90, "radiusPercent": 0.60, "damage": 1},
+    {"waitTime": 90, "shrinkTime": 75, "radiusPercent": 0.40, "damage": 1},
+    {"waitTime": 60, "shrinkTime": 60, "radiusPercent": 0.25, "damage": 2},
+    {"waitTime": 45, "shrinkTime": 45, "radiusPercent": 0.15, "damage": 5},
+    {"waitTime": 30, "shrinkTime": 30, "radiusPercent": 0.08, "damage": 8},
+    {"waitTime": 20, "shrinkTime": 20, "radiusPercent": 0.04, "damage": 10},
+    {"waitTime": 15, "shrinkTime": 15, "radiusPercent": 0.01, "damage": 10},
+    {"waitTime": 10, "shrinkTime": 10, "radiusPercent": 0.00, "damage": 10}
+  ]
+}
