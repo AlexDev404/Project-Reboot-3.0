@@ -109,7 +109,6 @@ private:
     std::unordered_map<std::string, size_t> EntryMap; // path -> index
 
     bool ReadPakInfo();
-    bool ReadPakIndex();
     std::vector<uint8> DecompressData(const FPakEntry& Entry, const std::vector<uint8>& CompressedData);
 };
 
