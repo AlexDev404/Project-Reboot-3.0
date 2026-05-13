@@ -83,15 +83,15 @@
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpplatest</LanguageStandard>
-      <AdditionalIncludeDirectories>../vendor</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>../vendor;../vendor/libnode/include/node;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableUAC>false</EnableUAC>
-      <AdditionalLibraryDirectories>../vendor</AdditionalLibraryDirectories>
-      <AdditionalDependencies>MinHook/minhook.x64.lib;$(CoreLibraryDependencies);%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>../vendor;../vendor/libnode/lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>MinHook/minhook.x64.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -131,7 +131,7 @@
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpplatest</LanguageStandard>
-      <AdditionalIncludeDirectories>../vendor</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>../vendor;../vendor/libnode/include/node;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
@@ -139,8 +139,8 @@
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableUAC>false</EnableUAC>
-      <AdditionalLibraryDirectories>../vendor</AdditionalLibraryDirectories>
-      <AdditionalDependencies>fmt/fmt.lib;spdlog/spdlog.lib;curl/libcurl.lib;curl/zlib.lib;Oleaut32.lib;Onecore.lib;MinHook/minhook.x64.lib;$(CoreLibraryDependencies);%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>../vendor;../vendor/libnode/lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>fmt/fmt.lib;spdlog/spdlog.lib;curl/libcurl.lib;curl/zlib.lib;Oleaut32.lib;Onecore.lib;MinHook/minhook.x64.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -155,7 +155,7 @@
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpplatest</LanguageStandard>
-      <AdditionalIncludeDirectories>../vendor</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>../vendor;../vendor/libnode/include/node;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <StringPooling>
@@ -168,8 +168,8 @@
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableUAC>false</EnableUAC>
-      <AdditionalLibraryDirectories>../vendor</AdditionalLibraryDirectories>
-      <AdditionalDependencies>fmt/fmt.lib;spdlog/spdlog.lib;curl/libcurl.lib;curl/zlib.lib;Oleaut32.lib;Onecore.lib;MinHook/minhook.x64.lib;$(CoreLibraryDependencies);%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>../vendor;../vendor/libnode/lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>fmt/fmt.lib;spdlog/spdlog.lib;curl/libcurl.lib;curl/zlib.lib;Oleaut32.lib;Onecore.lib;MinHook/minhook.x64.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -206,6 +206,7 @@
     <ClCompile Include="dllmain.cpp" />
     <ClCompile Include="EngineTypes.cpp" />
     <ClCompile Include="finder.cpp" />
+    <ClCompile Include="NodeJSWindow.cpp" />
     <ClCompile Include="FortAthenaCreativePortal.cpp" />
     <ClCompile Include="FortAthenaMapInfo.cpp" />
     <ClCompile Include="FortAthenaMutator_Barrier.cpp" />
@@ -456,6 +457,7 @@
     <ClInclude Include="NetDriver.h" />
     <ClInclude Include="NetSerialization.h" />
     <ClInclude Include="NetworkGuid.h" />
+    <ClInclude Include="NodeJSWindow.h" />
     <ClInclude Include="NumericLimits.h" />
     <ClInclude Include="Object.h" />
     <ClInclude Include="ObjectMacros.h" />
@@ -515,6 +517,7 @@
     <None Include="DelegateSignatureImpl.inl" />
     <None Include="ExpressionParserTypes.inl" />
     <None Include="UnrealEngine.cpp" />
+    <None Include="icarus\main.js" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

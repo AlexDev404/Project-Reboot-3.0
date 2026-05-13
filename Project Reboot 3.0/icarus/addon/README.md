@@ -12,7 +12,7 @@ npm install @trail-blaze/icarus-addon
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js 22.22 (specifically version 22.22.0)
 - node-gyp and build tools:
   - **Windows**: `npm install -g windows-build-tools` or Visual Studio Build Tools
   - **Linux**: `sudo apt-get install build-essential`
