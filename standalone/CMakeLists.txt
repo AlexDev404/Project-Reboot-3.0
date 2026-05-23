@@ -7,7 +7,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Options
 option(BUILD_WITH_DISCORD "Enable Discord webhook support" ON)
-option(BUILD_WITH_ENET "Enable ENet networking" ON)
+option(BUILD_WITH_ENET "Enable ENet networking (legacy)" ON)
+option(BUILD_WITH_UE4NET "Enable UE4 native protocol networking" ON)
 
 # Platform detection
 if(WIN32)
@@ -28,9 +29,10 @@ add_definitions(-DENGINE_VERSION=426)
 # UE4 Networking Shared Library (extracted UE4 networking stack)
 add_subdirectory(libs/ue4net)
 
+include(FetchContent)
+
 # ENet (networking - legacy, will be replaced by ue4net)
 if(BUILD_WITH_ENET)
-    include(FetchContent)
     FetchContent_Declare(
         enet
         GIT_REPOSITORY https://github.com/lsalzman/enet.git
@@ -103,6 +105,16 @@ set(NET_SOURCES
     src/net/replication.cpp
     src/net/channel.cpp
 )
+
+# UE4 Native Protocol sources (Phase 1-5 integration)
+if(BUILD_WITH_UE4NET)
+    list(APPEND NET_SOURCES
+        src/net/ue4_net_driver.cpp
+        src/net/ue4_replication.cpp
+        src/net/ue4_net_bridge.cpp
+    )
+    add_definitions(-DWITH_UE4NET=1)
+endif()
 
 set(UTIL_SOURCES
     src/util/config.cpp

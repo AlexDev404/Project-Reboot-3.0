@@ -51,14 +51,40 @@ void ProcessCommand(const std::string& Command)
         auto* NetDriver = UEngine::Get().GetNetDriver();
         fmt::print("[Server] Status:\n");
         fmt::print("  Port: {}\n", GServerConfig.Port);
-        fmt::print("  Players: {}/{}\n",
-            NetDriver ? NetDriver->GetNumConnections() : 0,
-            GServerConfig.MaxPlayers);
+#ifdef WITH_UE4NET
+        auto* UE4Driver = UEngine::Get().GetUE4NetDriver();
+        if (UE4Driver)
+        {
+            fmt::print("  Protocol: UE4 Native (raw UDP)\n");
+            // Use bridge to get connection count (avoids including ue4net headers)
+            extern int32_t UE4NetBridge_GetNumConnections();
+            fmt::print("  Players: {}/{}\n", UE4NetBridge_GetNumConnections(), GServerConfig.MaxPlayers);
+        }
+        else
+#endif
+        {
+            fmt::print("  Protocol: ENet (legacy)\n");
+            fmt::print("  Players: {}/{}\n",
+                NetDriver ? NetDriver->GetNumConnections() : 0,
+                GServerConfig.MaxPlayers);
+        }
         fmt::print("  Tick Rate: {:.1f}\n", GServerConfig.TickRate);
         fmt::print("  Uptime: {:.1f}s\n", UEngine::Get().GetTimeSeconds());
     }
     else if (Command == "players")
     {
+#ifdef WITH_UE4NET
+        auto* UE4Driver = UEngine::Get().GetUE4NetDriver();
+        if (UE4Driver)
+        {
+            fmt::print("[Server] Connected players (UE4 Native Protocol):\n");
+            // Player listing via bridge would require more bridge functions
+            // For now, just show count
+            extern int32_t UE4NetBridge_GetNumConnections();
+            fmt::print("  Total: {} connected\n", UE4NetBridge_GetNumConnections());
+            return;
+        }
+#endif
         auto* NetDriver = UEngine::Get().GetNetDriver();
         if (!NetDriver) { fmt::print("  No net driver\n"); return; }
         fmt::print("[Server] Connected players:\n");

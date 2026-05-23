@@ -9,6 +9,7 @@
 #include <chrono>
 
 class UNetDriver;
+class UE4NetDriver;
 class UWorld;
 class AGameMode;
 
@@ -30,6 +31,9 @@ public:
     // Subsystems
     UWorld* GetWorld() const { return World; }
     UNetDriver* GetNetDriver() const { return NetDriver; }
+#ifdef WITH_UE4NET
+    UE4NetDriver* GetUE4NetDriver() const { return UE4Driver; }
+#endif
 
     // Time
     float GetDeltaTime() const { return DeltaTime; }
@@ -44,6 +48,9 @@ private:
 
     UWorld* World = nullptr;
     UNetDriver* NetDriver = nullptr;
+#ifdef WITH_UE4NET
+    UE4NetDriver* UE4Driver = nullptr;
+#endif
 
     std::atomic<bool> bShutdownRequested{false};
     float DeltaTime = 0.f;

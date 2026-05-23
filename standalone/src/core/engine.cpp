@@ -10,12 +10,34 @@
 #include "util/logging.h"
 #include "util/config.h"
 
+// UE4 native protocol - included via a separate bridge to avoid type conflicts
+#ifdef WITH_UE4NET
+// Forward declarations only - actual UE4 net code lives in its own translation units
+class UE4NetDriver;
+class UE4ReplicationManager;
+
+// These functions are defined in ue4_net_bridge.cpp to isolate the ue4net includes
+namespace UE4NetBridge {
+    UE4NetDriver* CreateDriver();
+    void DestroyDriver(UE4NetDriver* Driver);
+    bool InitializeDriver(UE4NetDriver* Driver, uint16_t Port);
+    void ShutdownDriver(UE4NetDriver* Driver);
+    void TickDriver(UE4NetDriver* Driver, float DeltaTime);
+    void TickReplication(float DeltaTime);
+    int32_t GetNumConnections(UE4NetDriver* Driver);
+    bool IsListening(UE4NetDriver* Driver);
+}
+#endif
+
 #include <thread>
 #include <chrono>
 #include <spdlog/fmt/fmt.h>
 
 // Static game objects (owned by engine)
 static std::unique_ptr<UNetDriver> GNetDriver;
+#ifdef WITH_UE4NET
+static UE4NetDriver* GUE4NetDriver = nullptr;
+#endif
 static std::unique_ptr<AFortGameModeAthena> GGameMode;
 static std::unique_ptr<AFortGameStateAthena> GGameState;
 
@@ -29,17 +51,42 @@ bool UEngine::Initialize()
 {
     LOG_INFO(LogInit, "Initializing engine subsystems...");
 
-    // Create net driver
-    GNetDriver = std::make_unique<UNetDriver>();
-    NetDriver = GNetDriver.get();
+#ifdef WITH_UE4NET
+    // Prefer UE4 native protocol if available
+    GUE4NetDriver = UE4NetBridge::CreateDriver();
+    UE4Driver = GUE4NetDriver;
 
-    if (!NetDriver->Initialize(GServerConfig.Port))
+    if (GUE4NetDriver && UE4NetBridge::InitializeDriver(GUE4NetDriver, GServerConfig.Port))
     {
-        LOG_ERROR(LogInit, "Failed to initialize network driver on port {}", GServerConfig.Port);
-        return false;
+        LOG_INFO(LogInit, "UE4 Native Protocol driver initialized on port {}", GServerConfig.Port);
+    }
+    else
+    {
+        LOG_WARN(LogInit, "UE4 Native Protocol driver failed, falling back to ENet");
+        if (GUE4NetDriver)
+        {
+            UE4NetBridge::DestroyDriver(GUE4NetDriver);
+            GUE4NetDriver = nullptr;
+        }
+        UE4Driver = nullptr;
     }
 
-    LOG_INFO(LogInit, "Network driver initialized on port {}", GServerConfig.Port);
+    // Fall through to ENet if UE4 native failed
+    if (!UE4Driver)
+#endif
+    {
+        // Legacy ENet driver
+        GNetDriver = std::make_unique<UNetDriver>();
+        NetDriver = GNetDriver.get();
+
+        if (!NetDriver->Initialize(GServerConfig.Port))
+        {
+            LOG_ERROR(LogInit, "Failed to initialize network driver on port {}", GServerConfig.Port);
+            return false;
+        }
+
+        LOG_INFO(LogInit, "ENet network driver initialized on port {}", GServerConfig.Port);
+    }
 
     // Create game state
     GGameState = std::make_unique<AFortGameStateAthena>();
@@ -67,22 +114,33 @@ void UEngine::Tick(float InDeltaTime)
     TimeSeconds += DeltaTime;
     FrameCount++;
 
-    // Network tick - process incoming packets and replicate
-    if (NetDriver)
+#ifdef WITH_UE4NET
+    // UE4 native protocol tick
+    if (UE4Driver)
     {
-        NetDriver->TickFlush(DeltaTime);
+        UE4NetBridge::TickDriver(GUE4NetDriver, DeltaTime);
+        UE4NetBridge::TickReplication(DeltaTime);
+    }
+    else
+#endif
+    {
+        // Legacy ENet tick
+        if (NetDriver)
+        {
+            NetDriver->TickFlush(DeltaTime);
+        }
+
+        // Legacy replication tick
+        if (NetDriver && NetDriver->IsListening())
+        {
+            UReplicationManager::Get().ServerReplicateActors(NetDriver, DeltaTime);
+        }
     }
 
     // Game mode tick
     if (GGameMode)
     {
         GGameMode->Tick(DeltaTime);
-    }
-
-    // Replication tick
-    if (NetDriver && NetDriver->IsListening())
-    {
-        UReplicationManager::Get().ServerReplicateActors(NetDriver, DeltaTime);
     }
 }
 
@@ -117,6 +175,16 @@ void UEngine::Run()
 void UEngine::Shutdown()
 {
     LOG_INFO(LogInit, "Engine shutdown initiated...");
+
+#ifdef WITH_UE4NET
+    if (UE4Driver)
+    {
+        UE4NetBridge::ShutdownDriver(GUE4NetDriver);
+        UE4NetBridge::DestroyDriver(GUE4NetDriver);
+        GUE4NetDriver = nullptr;
+        UE4Driver = nullptr;
+    }
+#endif
 
     if (NetDriver)
     {
