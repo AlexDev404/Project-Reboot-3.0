@@ -5,7 +5,7 @@
 #include "UE4Net/Serialization/BitReader.h"
 #include "UE4Net/Serialization/BitWriter.h"
 
-enum { HistoryWordCountBits = FMath::CeilLogTwoHelper<FNetPacketNotify::MaxSequenceHistoryLength / FNetPacketNotify::SequenceHistoryT::BitsPerWord>::Value + 1 };
+static constexpr uint32 HistoryWordCountBits = 4; // CeilLog2(256/32) + 1 = 3 + 1 = 4
 enum { SeqMask = (1 << FNetPacketNotify::SequenceNumberBits) - 1 };
 
 static SIZE_T GetHistoryWordCount(const FNetPacketNotify::FNotificationHeader& Data)
@@ -59,7 +59,7 @@ PackedHeader |= OutSeq.Get() & SeqMask;
 PackedHeader |= (InAckSeq.Get() & SeqMask) << SequenceNumberBits;
 PackedHeader |= (static_cast<uint32>(HistoryWordCount - 1)) << (SequenceNumberBits * 2);
 
-Writer.SerializeInt(PackedHeader, (1u << (SequenceNumberBits * 2 + HistoryWordCountBits)));
+Writer.SerializeInt(PackedHeader, 0xFFFFFFFFu);
 InSeqHistory.Write(Writer, HistoryWordCount);
 
 return !Writer.IsError();
@@ -68,7 +68,7 @@ return !Writer.IsError();
 bool FNetPacketNotify::ReadHeader(FNotificationHeader& Data, FBitReader& Reader) const
 {
 uint32 PackedHeader = 0u;
-Reader.SerializeInt(PackedHeader, (1u << (SequenceNumberBits * 2 + HistoryWordCountBits)));
+Reader.SerializeInt(PackedHeader, 0xFFFFFFFFu);
 
 Data.Seq = SequenceNumberT(PackedHeader & SeqMask);
 Data.AckedSeq = SequenceNumberT((PackedHeader >> SequenceNumberBits) & SeqMask);

@@ -25,7 +25,10 @@ add_definitions(-DENGINE_VERSION=426)
 # Dependencies
 # =============================================================================
 
-# ENet (networking)
+# UE4 Networking Shared Library (extracted UE4 networking stack)
+add_subdirectory(libs/ue4net)
+
+# ENet (networking - legacy, will be replaced by ue4net)
 if(BUILD_WITH_ENET)
     include(FetchContent)
     FetchContent_Declare(
@@ -134,6 +137,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 target_link_libraries(${PROJECT_NAME} PRIVATE
     nlohmann_json::nlohmann_json
     spdlog::spdlog
+    ue4net
 )
 
 if(BUILD_WITH_ENET)

@@ -23,6 +23,16 @@ set(UE4NET_SOURCES
     src/Core/BitReader.cpp
     src/Core/BitWriter.cpp
     src/Net/NetPacketNotify.cpp
+    src/Crypto/SHA1.cpp
+    src/PacketHandlers/StatelessConnectHandlerComponent.cpp
+    src/Channel/DataBunch.cpp
+    src/Channel/Channel.cpp
+    src/Channel/ControlChannel.cpp
+    src/Channel/ActorChannel.cpp
+    src/Channel/NetConnection.cpp
+    src/Channel/NetDriver.cpp
+    src/Replication/RepLayout.cpp
+    src/RPC/RPCDispatch.cpp
 )
 
 # Header files (for IDE integration)

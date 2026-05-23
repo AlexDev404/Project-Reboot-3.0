@@ -320,10 +320,12 @@ public:
     FName() = default;
     FName(const wchar_t* InName) : Name(InName ? std::wstring(InName) : L"") {}
     FName(const char* InName) { if (InName) { for (const char* c = InName; *c; c++) Name += static_cast<wchar_t>(*c); } }
+    FName(const std::string& InName) { for (char c : InName) Name += static_cast<wchar_t>(c); }
     bool operator==(const FName& Other) const { return Name == Other.Name; }
     bool operator!=(const FName& Other) const { return Name != Other.Name; }
     bool IsNone() const { return Name.empty(); }
-    std::wstring ToString() const { return Name; }
+    std::wstring ToWString() const { return Name; }
+    std::string ToString() const { std::string r; for (wchar_t c : Name) r += static_cast<char>(c); return r; }
 private:
     std::wstring Name;
 };
@@ -338,15 +340,23 @@ public:
     FString() = default;
     FString(const TCHAR* InStr) : Data(InStr ? InStr : L"") {}
     FString(const char* InStr) { if (InStr) { for (const char* c = InStr; *c; c++) Data += static_cast<wchar_t>(*c); } }
+    FString(const std::string& InStr) { for (char c : InStr) Data += static_cast<wchar_t>(c); }
     bool IsEmpty() const { return Data.empty(); }
     int32 Len() const { return static_cast<int32>(Data.size()); }
+    SIZE_T length() const { return Data.size(); }
     const TCHAR* operator*() const { return Data.c_str(); }
     bool operator==(const FString& Other) const { return Data == Other.Data; }
 
+    // Narrow string access (for networking - addresses etc.)
+    const char* c_str() const { UpdateNarrow(); return NarrowCache.c_str(); }
+    std::string ToString() const { UpdateNarrow(); return NarrowCache; }
+
     static FString Printf(const TCHAR* Fmt, ...) { return FString(); }
-    static FString FromInt(int32 Value) { return FString(); }
+    static FString FromInt(int32 Value) { char b[16]; std::snprintf(b,16,"%d",Value); return FString(b); }
 private:
     std::wstring Data;
+    mutable std::string NarrowCache;
+    void UpdateNarrow() const { NarrowCache.clear(); for (wchar_t c : Data) NarrowCache += static_cast<char>(c); }
 };
 
 // =============================================================================
@@ -445,8 +455,15 @@ class FReferenceCollector {};
 struct FNetworkGUID
 {
     uint32 Value = 0;
+    FNetworkGUID() = default;
+    FNetworkGUID(uint32 InValue) : Value(InValue) {}
     bool IsValid() const { return Value != 0; }
+    bool IsDynamic() const { return Value > 0 && !(Value & 1); }
+    bool IsStatic() const { return (Value & 1) != 0; }
     bool operator==(const FNetworkGUID& Other) const { return Value == Other.Value; }
+    bool operator!=(const FNetworkGUID& Other) const { return Value != Other.Value; }
+    bool operator<(const FNetworkGUID& Other) const { return Value < Other.Value; }
+    FString ToString() const { return FString::FromInt(static_cast<int32>(Value)); }
 };
 
 struct FPacketIdRange
