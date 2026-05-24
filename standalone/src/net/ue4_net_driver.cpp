@@ -179,29 +179,47 @@ bool UE4NetDriver::Initialize(uint16_t Port)
         return false;
     }
 
-    // Set up driver callbacks
-    InternalDriver.OnConnectionAccepted = [this](UNetConnection* NewConn) {
-        // This is called by the ue4net driver when handshake completes
-        // We find our wrapper connection and mark it open
-        for (auto& Conn : ClientConnections)
-        {
-            if (Conn->InternalConnection == NewConn)
+    // Set up connection factory so LowLevelSend uses our raw UDP socket
+    InternalDriver.ConnectionFactory = [this](const FString& Address) -> UNetConnection* {
+        auto* Conn = new UE4RawUDPConnection();
+        Conn->SetRemoteAddress(Address.ToString());
+        Conn->SetSendFunction([this](const uint8* Data, int32 Count, const std::string& Addr) {
+            SendRawTo(Data, Count, Addr);
+        });
+
+        // When handshake completes (state -> Open), set up control channel handler
+        Conn->OnStateChanged = [this](EConnectionState NewState) {
+            if (NewState != EConnectionState::USOCK_Open) return;
+
+            // Find the wrapper connection for this internal connection
+            for (auto& WrapperConn : ClientConnections)
             {
-                Conn->State = UE4NetConnection::EState::Open;
-
-                // Set up control channel message handler
-                UControlChannel* CtrlCh = NewConn->GetControlChannel();
-                if (CtrlCh)
+                if (WrapperConn->InternalConnection && WrapperConn->InternalConnection->State == EConnectionState::USOCK_Open
+                    && WrapperConn->State == UE4NetConnection::EState::Pending)
                 {
-                    CtrlCh->OnControlMessage = [this, ConnPtr = Conn.get()](ENMTType Type, FBitReader& Data) {
-                        HandleControlMessage(ConnPtr, Type, Data);
-                    };
-                }
+                    WrapperConn->State = UE4NetConnection::EState::Open;
 
-                LOG_INFO(LogNet, "UE4 Connection {} handshake complete", Conn->ConnectionId);
-                break;
+                    UControlChannel* CtrlCh = WrapperConn->InternalConnection->GetControlChannel();
+                    if (CtrlCh)
+                    {
+                        CtrlCh->OnControlMessage = [this, ConnPtr = WrapperConn.get()](ENMTType Type, FBitReader& Data) {
+                            HandleControlMessage(ConnPtr, Type, Data);
+                        };
+                    }
+
+                    LOG_INFO(LogNet, "UE4 Connection {} handshake complete", WrapperConn->ConnectionId);
+                    break;
+                }
             }
-        }
+        };
+
+        return Conn;
+    };
+
+    // Set up driver callbacks (OnConnectionAccepted fires on CreateConnection, before handshake)
+    InternalDriver.OnConnectionAccepted = [this](UNetConnection* NewConn) {
+        // Connection created but handshake not yet complete - nothing to do here
+        // Actual setup happens in OnStateChanged above
     };
 
     InternalDriver.OnConnectionLost = [this](UNetConnection* LostConn) {
@@ -370,22 +388,57 @@ void UE4NetDriver::PollSocket()
         if (It != AddressToConnection.end())
         {
             Connection = It->second;
+            // Feed raw data to existing connection
+            if (Connection->InternalConnection)
+            {
+                LOG_INFO(LogNet, "Routing {} bytes to connection {} from {} (handshake={})",
+                    BytesRead, Connection->ConnectionId, FromAddress,
+                    Connection->InternalConnection->bHandshakeComplete ? "done" : "pending");
+                Connection->InternalConnection->ReceivedRawPacket(Buffer, BytesRead);
+            }
         }
         else
         {
-            // New connection - create wrapper and ue4net connection
-            Connection = CreateNewConnection(FromAddress);
-            if (!Connection) continue;
-        }
+            // New connection - let the internal driver handle handshake initiation
+            FString UE4Address(FromAddress.c_str());
 
-        // Feed raw data to the ue4net connection
-        // The ue4net connection handles:
-        //   1. Handshake detection (StatelessConnectHandlerComponent)
-        //   2. Packet header parsing (FNetPacketNotify)
-        //   3. Bunch extraction and channel routing
-        if (Connection->InternalConnection)
-        {
-            Connection->InternalConnection->ReceivedRawPacket(Buffer, BytesRead);
+            // Create our wrapper
+            auto NewConn = std::make_unique<UE4NetConnection>();
+            NewConn->ConnectionId = NextConnectionId++;
+            NewConn->Address = FromAddress;
+            NewConn->State = UE4NetConnection::EState::Pending;
+
+            UE4NetConnection* Ptr = NewConn.get();
+            AddressToConnection[FromAddress] = Ptr;
+            ClientConnections.push_back(std::move(NewConn));
+
+            {
+                std::string HexDump;
+                HexDump.reserve(BytesRead * 3);
+                char HexBuf[4];
+                for (int i = 0; i < BytesRead; i++)
+                {
+                    snprintf(HexBuf, sizeof(HexBuf), "%02X ", Buffer[i]);
+                    HexDump += HexBuf;
+                }
+                LOG_INFO(LogNet, "New UE4 connection from {} (ID: {}), first packet: {} bytes, data=[{}]",
+                    FromAddress, Ptr->ConnectionId, BytesRead, HexDump);
+            }
+
+            // Use ProcessIncomingConnection which creates the connection AND sends the challenge
+            InternalDriver.ProcessIncomingConnection(Buffer, BytesRead, UE4Address);
+
+            // Find the internal connection that was just created
+            UNetConnection* InternalConn = InternalDriver.FindConnectionByAddress(UE4Address);
+            if (InternalConn)
+            {
+                Ptr->InternalConnection = InternalConn;
+                LOG_INFO(LogNet, "Internal connection linked for ID {}", Ptr->ConnectionId);
+            }
+            else
+            {
+                LOG_ERROR(LogNet, "Failed to find internal connection for {}", FromAddress);
+            }
         }
     }
 }
@@ -404,8 +457,10 @@ void UE4NetDriver::SendRawTo(const uint8* Data, int32 Count, const std::string& 
     Addr.sin_port = htons(Port);
     inet_pton(AF_INET, IP.c_str(), &Addr.sin_addr);
 
-    sendto(SocketFD, reinterpret_cast<const char*>(Data), Count, 0,
+    int Sent = sendto(SocketFD, reinterpret_cast<const char*>(Data), Count, 0,
         reinterpret_cast<struct sockaddr*>(&Addr), sizeof(Addr));
+
+    LOG_INFO(LogNet, "SendRawTo: {} bytes to {} (result={})", Count, Address, Sent);
 }
 
 UE4NetConnection* UE4NetDriver::CreateNewConnection(const std::string& FromAddress)
@@ -501,7 +556,7 @@ void UE4NetDriver::HandleControlMessage(UE4NetConnection* Connection, ENMTType T
             HandleJoin(Connection, Data);
             break;
         default:
-            LOG_DEBUG(LogNet, "Unhandled NMT message type {} from connection {}",
+            LOG_INFO(LogNet, "Unhandled NMT message type {} from connection {}",
                 static_cast<int>(Type), Connection->GetConnectionId());
             break;
     }
@@ -568,7 +623,7 @@ void UE4NetDriver::HandleLogin(UE4NetConnection* Connection, FBitReader& Data)
 void UE4NetDriver::HandleNetspeed(UE4NetConnection* Connection, FBitReader& Data)
 {
     // Client reports their desired netspeed - acknowledge it
-    LOG_DEBUG(LogNet, "Received NMT_Netspeed from connection {}", Connection->GetConnectionId());
+    LOG_INFO(LogNet, "Received NMT_Netspeed from connection {}", Connection->GetConnectionId());
 }
 
 void UE4NetDriver::HandleJoin(UE4NetConnection* Connection, FBitReader& Data)

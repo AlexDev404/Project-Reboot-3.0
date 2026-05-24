@@ -97,11 +97,17 @@ void UNetDriver::ProcessIncomingConnection(const uint8* Data, int32 Count, const
     }
     else
     {
-        // New connection - begin handshake
+        // New connection - verify this is a handshake packet with Timestamp=0 (initial connect)
+        if (!FStatelessConnectHandlerComponent::IsHandshakePacket(Data, Count))
+        {
+            return; // Not a handshake packet, ignore
+        }
+
+        // Create the connection
         UNetConnection* NewConn = CreateConnection(FromAddress);
         if (NewConn)
         {
-            // Send challenge
+            // Send challenge to the client
             FBitWriter ChallengePacket(256, true);
             NewConn->HandshakeHandler.CreateChallengePacket(ChallengePacket, FromAddress);
             NewConn->LowLevelSend(ChallengePacket.GetData(), static_cast<int32>(ChallengePacket.GetNumBytes()));
@@ -123,7 +129,17 @@ UNetConnection* UNetDriver::FindConnectionByAddress(const FString& Address)
 
 UNetConnection* UNetDriver::CreateConnection(const FString& Address)
 {
-    UNetConnection* NewConn = new UNetConnection();
+    UNetConnection* NewConn = nullptr;
+
+    if (ConnectionFactory)
+    {
+        NewConn = ConnectionFactory(Address);
+    }
+    else
+    {
+        NewConn = new UNetConnection();
+    }
+
     NewConn->RemoteAddressStr = Address;
     NewConn->InitBase(this, Socket, Address, EConnectionState::USOCK_Pending);
 

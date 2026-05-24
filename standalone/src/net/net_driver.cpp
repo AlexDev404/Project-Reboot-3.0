@@ -397,7 +397,7 @@ void UNetDriver::OnPacketReceived(UNetConnection* Connection, const uint8* Data,
     }
     else
     {
-        LOG_DEBUG(LogNet, "No handler for packet type 0x{:02X} from connection {}",
+        LOG_INFO(LogNet, "No handler for packet type 0x{:02X} from connection {}",
             static_cast<int>(Packet.Type), Connection->GetConnectionId());
     }
 }

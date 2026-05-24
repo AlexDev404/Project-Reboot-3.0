@@ -25,7 +25,7 @@ void UReplicationManager::AddActor(AActor* Actor)
     ReplicatedActors.push_back(State);
     ActorToIndex[Actor] = Index;
 
-    LOG_DEBUG(LogReplication, "Added actor for replication (NetGUID: {})", State.NetGUID);
+    LOG_INFO(LogReplication, "Added actor for replication (NetGUID: {})", State.NetGUID);
 }
 
 void UReplicationManager::RemoveActor(AActor* Actor)

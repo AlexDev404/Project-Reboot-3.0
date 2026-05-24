@@ -40,6 +40,34 @@
 class AFortPlayerControllerAthena;
 
 // =============================================================================
+// UE4 Raw UDP Connection - Subclass that sends via our raw socket
+// =============================================================================
+
+class UE4RawUDPConnection : public UNetConnection
+{
+public:
+    using FSendFunc = std::function<void(const uint8* Data, int32 Count, const std::string& Address)>;
+
+    UE4RawUDPConnection() = default;
+
+    void SetSendFunction(FSendFunc InSendFunc) { SendFunc = std::move(InSendFunc); }
+    void SetRemoteAddress(const std::string& Addr) { RemoteAddr = Addr; }
+
+    void LowLevelSend(const uint8* Data, int32 Count) override
+    {
+        if (SendFunc && !RemoteAddr.empty())
+        {
+            SendFunc(Data, Count, RemoteAddr);
+        }
+        // Don't call base - it does nothing useful and we already counted via SendFunc log
+    }
+
+private:
+    FSendFunc SendFunc;
+    std::string RemoteAddr;
+};
+
+// =============================================================================
 // UE4 Native Connection - Wraps ue4net's UNetConnection for game use
 // =============================================================================
 

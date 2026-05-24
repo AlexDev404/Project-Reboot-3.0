@@ -1,5 +1,8 @@
+#include <WinSock2.h>
+#include <Ws2tcpip.h>
 #include <Windows.h>
 #include <iostream>
+#pragma comment(lib, "Ws2_32.lib")
 
 #include "FortGameModeAthena.h"
 #include "reboot.h"
@@ -913,6 +916,68 @@ DWORD WINAPI Main(LPVOID)
     std::ios_base::sync_with_stdio(false);
 
     auto MH_InitCode = MH_Initialize();
+
+    // WinSock capture: hooks both classic (sendto/recvfrom) and async (WSASendTo/WSARecvFrom)
+    auto InstallWinsockCapture = []() {
+        static int (WINAPI* SendToOriginal)(SOCKET, const char*, int, int, const sockaddr*, int) = nullptr;
+        static int (WINAPI* RecvFromOriginal)(SOCKET, char*, int, int, sockaddr*, int*) = nullptr;
+        static int (WINAPI* WSASendToOriginal)(SOCKET, LPWSABUF, DWORD, LPDWORD, DWORD, const sockaddr*, int, LPWSAOVERLAPPED, LPWSAOVERLAPPED_COMPLETION_ROUTINE) = nullptr;
+        static int (WINAPI* WSARecvFromOriginal)(SOCKET, LPWSABUF, DWORD, LPDWORD, LPDWORD, sockaddr*, LPINT, LPWSAOVERLAPPED, LPWSAOVERLAPPED_COMPLETION_ROUTINE) = nullptr;
+
+        struct WSC {
+            static void Dump(const char* Dir, const char* Data, int Len, const sockaddr* Addr) {
+                if (Len <= 0) return;
+                // Capture handshake-sized packets in full; for larger packets log just len + first 16 bytes
+                bool bTruncate = (Len > 64);
+                char AddrStr[64] = { 0 };
+                int Port = 0;
+                if (Addr && Addr->sa_family == AF_INET) {
+                    const sockaddr_in* In = reinterpret_cast<const sockaddr_in*>(Addr);
+                    inet_ntop(AF_INET, (PVOID)&In->sin_addr, AddrStr, sizeof(AddrStr));
+                    Port = ntohs(In->sin_port);
+                }
+                int DumpLen = bTruncate ? 16 : Len;
+                std::string Hex; Hex.reserve(DumpLen * 3);
+                char B[4];
+                for (int i = 0; i < DumpLen; i++) { snprintf(B, sizeof(B), "%02X ", (unsigned char)Data[i]); Hex += B; }
+                LOG_INFO(LogNet, "[WSCAP {}] {}:{} len={}{} data=[{}]",
+                    Dir, AddrStr, Port, Len, bTruncate ? "(trunc16)" : "", Hex);
+            }
+            static int WINAPI Send(SOCKET s, const char* b, int l, int f, const sockaddr* to, int tl) {
+                Dump("SEND", b, l, to);
+                return SendToOriginal(s, b, l, f, to, tl);
+            }
+            static int WINAPI Recv(SOCKET s, char* b, int l, int f, sockaddr* from, int* fl) {
+                int r = RecvFromOriginal(s, b, l, f, from, fl);
+                if (r > 0) Dump("RECV", b, r, from);
+                return r;
+            }
+            static int WINAPI WSASend(SOCKET s, LPWSABUF buffers, DWORD count, LPDWORD sent, DWORD flags,
+                                     const sockaddr* to, int tolen, LPWSAOVERLAPPED ov, LPWSAOVERLAPPED_COMPLETION_ROUTINE cr) {
+                for (DWORD i = 0; i < count && buffers; i++)
+                    Dump("WSASEND", buffers[i].buf, (int)buffers[i].len, to);
+                return WSASendToOriginal(s, buffers, count, sent, flags, to, tolen, ov, cr);
+            }
+            static int WINAPI WSARecv(SOCKET s, LPWSABUF buffers, DWORD count, LPDWORD recvd, LPDWORD flags,
+                                     sockaddr* from, LPINT fromlen, LPWSAOVERLAPPED ov, LPWSAOVERLAPPED_COMPLETION_ROUTINE cr) {
+                int r = WSARecvFromOriginal(s, buffers, count, recvd, flags, from, fromlen, ov, cr);
+                if (r == 0 && recvd && *recvd > 0 && buffers && count > 0)
+                    Dump("WSARECV", buffers[0].buf, (int)*recvd, from);
+                return r;
+            }
+        };
+
+        HMODULE ws2 = GetModuleHandleA("ws2_32.dll");
+        if (!ws2) { LOG_ERROR(LogNet, "[WSCAP] ws2_32.dll not loaded"); return; }
+        void* SAddr  = GetProcAddress(ws2, "sendto");
+        void* RAddr  = GetProcAddress(ws2, "recvfrom");
+        void* WSAddr = GetProcAddress(ws2, "WSASendTo");
+        void* WRAddr = GetProcAddress(ws2, "WSARecvFrom");
+        if (SAddr)  Hooking::MinHook::Hook(SAddr,  WSC::Send,    (void**)&SendToOriginal,    "ws2_32!sendto");
+        if (RAddr)  Hooking::MinHook::Hook(RAddr,  WSC::Recv,    (void**)&RecvFromOriginal,  "ws2_32!recvfrom");
+        if (WSAddr) Hooking::MinHook::Hook(WSAddr, WSC::WSASend, (void**)&WSASendToOriginal, "ws2_32!WSASendTo");
+        if (WRAddr) Hooking::MinHook::Hook(WRAddr, WSC::WSARecv, (void**)&WSARecvFromOriginal, "ws2_32!WSARecvFrom");
+    };
     
     if (MH_InitCode != MH_OK)
     {
@@ -921,6 +986,10 @@ DWORD WINAPI Main(LPVOID)
     }
 
     std::cout << std::format("Base Address: 0x{:x}\n", __int64(GetModuleHandleW(0)));
+
+    // Install WinSock capture hooks early so we catch the entire handshake exchange
+    InstallWinsockCapture();
+    LOG_INFO(LogNet, "WinSock packet capture installed (sendto + recvfrom)");
 
     LOG_INFO(LogInit, "Initializing Project Reboot!");
     LOG_INFO(LogDev, "Built on {} {}", __DATE__, __TIME__);

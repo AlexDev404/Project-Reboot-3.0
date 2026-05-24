@@ -208,7 +208,7 @@ UObject* UAssetRegistry::LoadFromPak(const std::string& AssetPath)
 
     if (Data.empty())
     {
-        LOG_DEBUG(LogAsset, "Asset not found in PAK files: {}", AssetPath);
+        LOG_INFO(LogAsset, "Asset not found in PAK files: {}", AssetPath);
         return nullptr;
     }
 

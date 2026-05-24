@@ -41,7 +41,10 @@ class ENGINE_API FStatelessConnectHandlerComponent
 {
 public:
     static constexpr int32 SecretByteSize = 64;
-    static constexpr int32 CookieByteSize = FSHA1::DigestSize;  // 20 bytes
+    static constexpr int32 CookieByteSize = FSHA1::DigestSize;  // 20 bytes (standard UE4 4.26)
+    // Fortnite 17.50 prepends a 4-bit MagicHeader to all packets
+    static constexpr uint8 FortniteMagicHeader = 0x7;  // binary 0111 (LSB-first)
+    static constexpr int32 MagicHeaderBits = 4;
     static constexpr uint8 HandshakeMagic = 0x5A;  // Magic byte identifying handshake packets
 
     FStatelessConnectHandlerComponent();

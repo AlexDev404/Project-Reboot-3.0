@@ -141,29 +141,40 @@ void UNetConnection::ReceivedRawPacket(const uint8* Data, int32 Count)
     TotalBytesReceived += Count;
     PacketsReceived++;
 
-    // Check if this is a handshake packet
-    if (!bHandshakeComplete)
+    // Fortnite 17.50: MagicHeader(4) + HandshakeBit(1) = handshake packet
+    if (FStatelessConnectHandlerComponent::IsHandshakePacket(Data, Count))
     {
-        if (FStatelessConnectHandlerComponent::IsHandshakePacket(Data, Count))
+        if (!bHandshakeComplete)
         {
             FBitReader Reader(const_cast<uint8*>(Data), static_cast<int64>(Count) * 8);
 
-            // Skip the first bit (game/handshake discriminator)
+            // Skip 4-bit MagicHeader + 1-bit HandshakeBit (already known to be 1)
+            Reader.ReadBit(); Reader.ReadBit(); Reader.ReadBit(); Reader.ReadBit();
             Reader.ReadBit();
 
-            if (HandshakeHandler.GetState() == EHandshakeState::InitializedOnLocal)
+            if (HandshakeHandler.GetState() == EHandshakeState::InitializedOnLocal ||
+                HandshakeHandler.GetState() == EHandshakeState::SentChallenge)
             {
-                // Server: This is a client's initial packet or challenge response
+                // Server: This is a client's challenge response
                 if (HandshakeHandler.ProcessChallengeResponse(Reader, RemoteAddressStr))
                 {
+                    // Send challenge ack
+                    FBitWriter AckPacket(256, true);
+                    HandshakeHandler.CreateChallengeAck(AckPacket);
+                    LowLevelSend(AckPacket.GetData(), static_cast<int32>(AckPacket.GetNumBytes()));
+
                     bHandshakeComplete = true;
                     State = EConnectionState::USOCK_Open;
                     if (OnStateChanged) OnStateChanged(State);
                 }
             }
-            return;
         }
-        else if (HandshakeHandler.IsHandshakeComplete())
+        return;
+    }
+
+    if (!bHandshakeComplete)
+    {
+        if (HandshakeHandler.IsHandshakeComplete())
         {
             bHandshakeComplete = true;
         }
@@ -173,8 +184,10 @@ void UNetConnection::ReceivedRawPacket(const uint8* Data, int32 Count)
         }
     }
 
-    // Process as game packet
+    // Game packet: skip MagicHeader(4) + HandshakeBit(0 = game)
     FBitReader Reader(const_cast<uint8*>(Data), static_cast<int64>(Count) * 8);
+    Reader.ReadBit(); Reader.ReadBit(); Reader.ReadBit(); Reader.ReadBit();
+    Reader.ReadBit();
     ReceivedPacket(Reader);
 }
 
@@ -278,6 +291,14 @@ void UNetConnection::FlushNet(bool bIgnoreSimulation)
 {
     if (State == EConnectionState::USOCK_Closed) return;
 
+    // Don't send empty packets — real UE4 servers stay silent until they have data
+    // to send or acks to deliver. Spamming empty PacketNotify headers triggers the
+    // client to disconnect (it interprets them as malformed traffic).
+    if (PendingOutBunches.Num() == 0)
+    {
+        return;
+    }
+
     // Build outgoing packet
     FBitWriter PacketWriter(MAX_PACKET_SIZE * 8, false);
 
@@ -312,7 +333,13 @@ void UNetConnection::FlushNet(bool bIgnoreSimulation)
     // Send
     if (PacketWriter.GetNumBytes() > 0)
     {
-        LowLevelSend(PacketWriter.GetData(), static_cast<int32>(PacketWriter.GetNumBytes()));
+        // Prepend Fortnite MagicHeader(4=0x7) + HandshakeBit(0 = game packet)
+        FBitWriter FinalPacket(PacketWriter.GetNumBits() + 5, true);
+        FinalPacket.WriteBit(1); FinalPacket.WriteBit(1); FinalPacket.WriteBit(1); FinalPacket.WriteBit(0); // Magic 0b0111
+        FinalPacket.WriteBit(0); // HandshakeBit = 0
+        FinalPacket.SerializeBits(PacketWriter.GetData(), PacketWriter.GetNumBits());
+
+        LowLevelSend(FinalPacket.GetData(), static_cast<int32>(FinalPacket.GetNumBytes()));
     }
 }
 

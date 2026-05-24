@@ -58,9 +58,11 @@ public:
     // Callbacks
     using FOnConnectionAccepted = std::function<void(UNetConnection* NewConnection)>;
     using FOnConnectionLost = std::function<void(UNetConnection* LostConnection)>;
+    using FConnectionFactory = std::function<UNetConnection*(const FString& Address)>;
 
     FOnConnectionAccepted OnConnectionAccepted;
     FOnConnectionLost OnConnectionLost;
+    FConnectionFactory ConnectionFactory;  // If set, used instead of `new UNetConnection()`
 
     // Is this driver a server?
     bool IsServer() const { return ServerConnection == nullptr; }

@@ -13,6 +13,7 @@ using Reboot::UNetDriver;
 class UE4NetDriver;
 class UWorld;
 class AGameMode;
+class AFortGameModeAthena;
 
 class UEngine
 {
@@ -32,6 +33,7 @@ public:
     // Subsystems
     UWorld* GetWorld() const { return World; }
     UNetDriver* GetNetDriver() const { return NetDriver; }
+    AFortGameModeAthena* GetGameMode() const { return GameMode; }
 #ifdef WITH_UE4NET
     UE4NetDriver* GetUE4NetDriver() const { return UE4Driver; }
 #endif
@@ -49,6 +51,7 @@ private:
 
     UWorld* World = nullptr;
     UNetDriver* NetDriver = nullptr;
+    AFortGameModeAthena* GameMode = nullptr;
 #ifdef WITH_UE4NET
     UE4NetDriver* UE4Driver = nullptr;
 #endif

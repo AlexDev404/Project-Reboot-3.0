@@ -35,7 +35,7 @@ void AFortPlayerControllerAthena::ServerCreateBuildingActor(EFortBuildingType Ty
         // TODO: Check and deduct resources based on material type
     }
 
-    LOG_DEBUG(LogGame, "{} built {} at ({}, {}, {})",
+    LOG_INFO(LogGame, "{} built {} at ({}, {}, {})",
         PlayerName, static_cast<int>(Type), Location.X, Location.Y, Location.Z);
 
     // TODO: Create building actor, add to replication
@@ -44,23 +44,23 @@ void AFortPlayerControllerAthena::ServerCreateBuildingActor(EFortBuildingType Ty
 void AFortPlayerControllerAthena::ServerBeginEditingBuildingActor(UObject* BuildingActor)
 {
     // Begin edit mode for a building piece
-    LOG_DEBUG(LogGame, "{} began editing building", PlayerName);
+    LOG_INFO(LogGame, "{} began editing building", PlayerName);
 }
 
 void AFortPlayerControllerAthena::ServerEditBuildingActor(UObject* BuildingActor, UObject* NewClass, int32 RotationIterations)
 {
     // Apply edit to building
-    LOG_DEBUG(LogGame, "{} edited building", PlayerName);
+    LOG_INFO(LogGame, "{} edited building", PlayerName);
 }
 
 void AFortPlayerControllerAthena::ServerEndEditingBuildingActor(UObject* BuildingActor)
 {
-    LOG_DEBUG(LogGame, "{} finished editing building", PlayerName);
+    LOG_INFO(LogGame, "{} finished editing building", PlayerName);
 }
 
 void AFortPlayerControllerAthena::ServerRepairBuildingActor(UObject* BuildingActor)
 {
-    LOG_DEBUG(LogGame, "{} repaired building", PlayerName);
+    LOG_INFO(LogGame, "{} repaired building", PlayerName);
 }
 
 void AFortPlayerControllerAthena::ServerExecuteInventoryItem(const FGuid& ItemGuid)
@@ -68,7 +68,7 @@ void AFortPlayerControllerAthena::ServerExecuteInventoryItem(const FGuid& ItemGu
     auto* Item = FindInventoryItem(ItemGuid);
     if (!Item) return;
 
-    LOG_DEBUG(LogGame, "{} equipped item: {}", PlayerName, Item->ItemDefinitionPath);
+    LOG_INFO(LogGame, "{} equipped item: {}", PlayerName, Item->ItemDefinitionPath);
 
     if (Pawn)
     {
@@ -81,7 +81,7 @@ void AFortPlayerControllerAthena::ServerAttemptInventoryDrop(const FGuid& ItemGu
     auto* Item = FindInventoryItem(ItemGuid);
     if (!Item) return;
 
-    LOG_DEBUG(LogGame, "{} dropped {} x{}", PlayerName, Item->ItemDefinitionPath, Count);
+    LOG_INFO(LogGame, "{} dropped {} x{}", PlayerName, Item->ItemDefinitionPath, Count);
 
     // TODO: Spawn pickup in world at pawn location
     RemoveItem(ItemGuid, Count);
@@ -89,7 +89,7 @@ void AFortPlayerControllerAthena::ServerAttemptInventoryDrop(const FGuid& ItemGu
 
 void AFortPlayerControllerAthena::ServerDropAllItems()
 {
-    LOG_DEBUG(LogGame, "{} dropped all items", PlayerName);
+    LOG_INFO(LogGame, "{} dropped all items", PlayerName);
     // Drop all items on death
     for (auto& Item : Inventory)
     {
@@ -100,19 +100,19 @@ void AFortPlayerControllerAthena::ServerDropAllItems()
 
 void AFortPlayerControllerAthena::ServerAttemptInteract(UObject* ReceivingActor, bool bForcePickup)
 {
-    LOG_DEBUG(LogGame, "{} interacted with object", PlayerName);
+    LOG_INFO(LogGame, "{} interacted with object", PlayerName);
     // Handle pickups, chests, ammo boxes, etc.
 }
 
 void AFortPlayerControllerAthena::ServerPlayEmoteItem(const std::string& EmoteDefinitionPath)
 {
-    LOG_DEBUG(LogGame, "{} played emote: {}", PlayerName, EmoteDefinitionPath);
+    LOG_INFO(LogGame, "{} played emote: {}", PlayerName, EmoteDefinitionPath);
     // Broadcast emote to nearby players
 }
 
 void AFortPlayerControllerAthena::ServerPlaySprayItem(const std::string& SprayDefinitionPath)
 {
-    LOG_DEBUG(LogGame, "{} used spray: {}", PlayerName, SprayDefinitionPath);
+    LOG_INFO(LogGame, "{} used spray: {}", PlayerName, SprayDefinitionPath);
 }
 
 void AFortPlayerControllerAthena::ServerReadyToStartMatch()
@@ -140,7 +140,7 @@ void AFortPlayerControllerAthena::ServerSuicide()
 
 void AFortPlayerControllerAthena::ServerPlaySquadQuickChatMessage(int32 MessageIndex)
 {
-    LOG_DEBUG(LogGame, "{} sent quick chat message: {}", PlayerName, MessageIndex);
+    LOG_INFO(LogGame, "{} sent quick chat message: {}", PlayerName, MessageIndex);
 }
 
 void AFortPlayerControllerAthena::ServerCheat(const std::string& Command)
@@ -151,7 +151,7 @@ void AFortPlayerControllerAthena::ServerCheat(const std::string& Command)
 
 void AFortPlayerControllerAthena::ServerRequestSeatChange(int32 SeatIndex)
 {
-    LOG_DEBUG(LogGame, "{} requested seat change to {}", PlayerName, SeatIndex);
+    LOG_INFO(LogGame, "{} requested seat change to {}", PlayerName, SeatIndex);
 }
 
 void AFortPlayerControllerAthena::ServerGiveCreativeItem(const std::string& ItemPath)
@@ -214,7 +214,7 @@ void AFortPlayerControllerAthena::GiveItem(const std::string& ItemDefinitionPath
 
     Inventory.push_back(Entry);
 
-    LOG_DEBUG(LogGame, "Gave {} x{} to {}", ItemDefinitionPath, Count, PlayerName);
+    LOG_INFO(LogGame, "Gave {} x{} to {}", ItemDefinitionPath, Count, PlayerName);
     UpdateInventoryOnClient();
 }
 

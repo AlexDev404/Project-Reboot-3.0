@@ -1,6 +1,6 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 // Adapted from Engine/Source/Runtime/Engine/Private/Net/StatelessConnectHandlerComponent.cpp
-// Implements the UE4 stateless cookie handshake
+// Implements the UE4 4.26 stateless cookie handshake (matches real Fortnite 17.50 client)
 
 #include "UE4Net/PacketHandlers/StatelessConnectHandlerComponent.h"
 
@@ -8,15 +8,27 @@
 #include <cstdlib>
 #include <chrono>
 
+// UE4 4.26 handshake packet sizes (in bits, after MagicHeader)
+// Format: [HandshakeBit:1][RestartBit:1][SecretIdBit:1][Timestamp:64][Cookie:160] = 227 bits
+// Plus 1 termination bit when sent = 228 bits = 29 bytes on the wire
+static constexpr int32 HANDSHAKE_PACKET_SIZE_BITS = 227;
+static constexpr int32 COOKIE_BYTE_SIZE = 20; // SHA1 digest size
+
+// Secret update timing
+static constexpr float SECRET_UPDATE_TIME = 15.f;
+static constexpr float SECRET_UPDATE_TIME_VARIANCE = 5.f;
+static constexpr float MAX_COOKIE_LIFETIME = (SECRET_UPDATE_TIME + SECRET_UPDATE_TIME_VARIANCE) * 2.f;
+
 static double GetCurrentTime()
 {
     auto now = std::chrono::steady_clock::now();
     return std::chrono::duration<double>(now.time_since_epoch()).count();
 }
 
+static double GElapsedTime = 0.0;
+
 static void GenerateRandomBytes(uint8* OutBytes, int32 NumBytes)
 {
-    // Use random device for secret generation
     for (int32 i = 0; i < NumBytes; i++)
     {
         OutBytes[i] = static_cast<uint8>(std::rand() & 0xFF);
@@ -40,6 +52,7 @@ void FStatelessConnectHandlerComponent::Initialize()
     GenerateRandomBytes(ActiveSecret, SecretByteSize);
     GenerateRandomBytes(OldSecret, SecretByteSize);
     LastSecretRotationTime = GetCurrentTime();
+    GElapsedTime = 0.0;
     State = EHandshakeState::InitializedOnLocal;
 }
 
@@ -52,12 +65,27 @@ void FStatelessConnectHandlerComponent::RotateSecrets()
 
 void FStatelessConnectHandlerComponent::GenerateCookieWithSecret(const uint8* Secret, const FString& ClientAddress, uint8 OutCookie[CookieByteSize]) const
 {
-    // HMAC(secret, client_address + timestamp_bytes)
-    // In UE4, the address is encoded as bytes and combined with a timestamp
+    // Real UE4: Cookie = HMAC(Secret, Timestamp + ClientAddress)
+    // We combine the timestamp bytes with the address string for the HMAC input
+    TArray<uint8> CookieData;
+
+    // Serialize timestamp
+    double Timestamp = LastTimestamp;
+    const uint8* TimestampBytes = reinterpret_cast<const uint8*>(&Timestamp);
+    for (int32 i = 0; i < 8; i++)
+    {
+        CookieData.Add(TimestampBytes[i]);
+    }
+
+    // Serialize address
     const char* AddrStr = ClientAddress.c_str();
     int32 AddrLen = static_cast<int32>(ClientAddress.length());
+    for (int32 i = 0; i < AddrLen; i++)
+    {
+        CookieData.Add(static_cast<uint8>(AddrStr[i]));
+    }
 
-    FHMACSHA1::Generate(Secret, SecretByteSize, reinterpret_cast<const uint8*>(AddrStr), AddrLen, OutCookie);
+    FHMACSHA1::Generate(Secret, SecretByteSize, CookieData.GetData(), CookieData.Num(), OutCookie);
 }
 
 void FStatelessConnectHandlerComponent::GenerateCookie(const FString& ClientAddress, uint8 OutCookie[CookieByteSize]) const
@@ -80,21 +108,37 @@ bool FStatelessConnectHandlerComponent::VerifyCookie(const FString& ClientAddres
     return FMemory::Memcmp(InCookie, ExpectedCookie, CookieByteSize) == 0;
 }
 
+// Helper: write Fortnite's 4-bit MagicHeader (0b0111 LSB-first) at the start of every packet
+static void WriteFortniteMagicHeader(FBitWriter& Out)
+{
+    Out.WriteBit(1); Out.WriteBit(1); Out.WriteBit(1); Out.WriteBit(0);
+}
+
+// Helper: skip the 4-bit MagicHeader during reads
+static void SkipFortniteMagicHeader(FBitReader& In)
+{
+    In.ReadBit(); In.ReadBit(); In.ReadBit(); In.ReadBit();
+}
+
 bool FStatelessConnectHandlerComponent::CreateChallengePacket(FBitWriter& OutPacket, const FString& ClientAddress)
 {
-    // Handshake packet format:
-    // [1 byte: magic] [1 byte: packet type] [20 bytes: cookie]
-    LastTimestamp = GetCurrentTime();
+    // Fortnite 17.50 challenge format (29 bytes / 232 bits):
+    // [MagicHeader:4=0x7][HandshakeBit:1=1][RestartBit:1=0][SecretIdBit:1=1][Timestamp:64][Cookie:160][TermBit:1]
+
+    GElapsedTime += 0.001;
+    LastTimestamp = GElapsedTime;
+    double Timestamp = LastTimestamp;
 
     uint8 Cookie[CookieByteSize];
     GenerateCookie(ClientAddress, Cookie);
 
-    OutPacket.WriteBit(0); // Not a game packet (UE4 uses top bit to distinguish)
-    uint8 Magic = HandshakeMagic;
-    OutPacket.Serialize(&Magic, 1);
-    uint8 Type = static_cast<uint8>(EHandshakePacketType::Challenge);
-    OutPacket.Serialize(&Type, 1);
-    OutPacket.Serialize(Cookie, CookieByteSize);
+    WriteFortniteMagicHeader(OutPacket);
+    OutPacket.WriteBit(1);                          // HandshakeBit
+    OutPacket.WriteBit(0);                          // RestartHandshakeBit
+    OutPacket.WriteBit(1);                          // SecretIdBit (using active secret)
+    OutPacket << Timestamp;                         // 64-bit double
+    OutPacket.Serialize(Cookie, CookieByteSize);    // 20-byte cookie (SHA1)
+    OutPacket.WriteBit(1);                          // Termination
 
     State = EHandshakeState::SentChallenge;
     return !OutPacket.IsError();
@@ -102,13 +146,16 @@ bool FStatelessConnectHandlerComponent::CreateChallengePacket(FBitWriter& OutPac
 
 bool FStatelessConnectHandlerComponent::ProcessChallengeResponse(FBitReader& InPacket, const FString& ClientAddress)
 {
-    // Read cookie from client response
-    uint8 Cookie[CookieByteSize];
+    // Client response format (after MagicHeader + HandshakeBit already consumed by caller):
+    // [RestartBit:1][SecretIdBit:1][Timestamp:64][Cookie:160]
 
-    // Skip magic + type (already verified by IsHandshakePacket)
-    uint8 Magic, Type;
-    InPacket.Serialize(&Magic, 1);
-    InPacket.Serialize(&Type, 1);
+    uint8 bRestartHandshake = InPacket.ReadBit();
+    uint8 SecretId = InPacket.ReadBit();
+
+    double Timestamp = 0.0;
+    InPacket << Timestamp;
+
+    uint8 Cookie[CookieByteSize];
     InPacket.Serialize(Cookie, CookieByteSize);
 
     if (InPacket.IsError())
@@ -116,16 +163,57 @@ bool FStatelessConnectHandlerComponent::ProcessChallengeResponse(FBitReader& InP
         return false;
     }
 
-    return VerifyCookie(ClientAddress, Cookie);
+    // This is a challenge response (Timestamp != 0)
+    if (Timestamp == 0.0)
+    {
+        return false; // This is an initial connect, not a response
+    }
+
+    // Verify: regenerate cookie with the timestamp from the packet
+    double SavedTimestamp = LastTimestamp;
+    LastTimestamp = Timestamp;
+
+    uint8 RegenCookie[CookieByteSize];
+    GenerateCookieWithSecret(ActiveSecret, ClientAddress, RegenCookie);
+
+    bool bSuccess = FMemory::Memcmp(Cookie, RegenCookie, CookieByteSize) == 0;
+
+    if (!bSuccess)
+    {
+        // Try old secret
+        GenerateCookieWithSecret(OldSecret, ClientAddress, RegenCookie);
+        bSuccess = FMemory::Memcmp(Cookie, RegenCookie, CookieByteSize) == 0;
+    }
+
+    if (!bSuccess)
+    {
+        LastTimestamp = SavedTimestamp;
+    }
+    else
+    {
+        // Store the verified cookie for the ack — the client expects to receive back
+        // the exact same cookie it just sent.
+        FMemory::Memcpy(LastCookie, Cookie, CookieByteSize);
+    }
+
+    return bSuccess;
 }
 
 bool FStatelessConnectHandlerComponent::CreateChallengeAck(FBitWriter& OutPacket)
 {
-    OutPacket.WriteBit(0); // Not a game packet
-    uint8 Magic = HandshakeMagic;
-    OutPacket.Serialize(&Magic, 1);
-    uint8 Type = static_cast<uint8>(EHandshakePacketType::ChallengeAck);
-    OutPacket.Serialize(&Type, 1);
+    // Ack: [Magic:4][HandshakeBit:1=1][RestartBit:1=0][SecretIdBit:1=1][Timestamp:64=-1.0][Cookie:160][TermBit:1]
+
+    double Timestamp = -1.0;
+    uint8 Cookie[CookieByteSize];
+    FMemory::Memcpy(Cookie, LastCookie, CookieByteSize);
+
+    WriteFortniteMagicHeader(OutPacket);
+    OutPacket.WriteBit(1); // HandshakeBit
+    OutPacket.WriteBit(0); // RestartBit
+    OutPacket.WriteBit(1); // SecretIdBit
+    OutPacket << Timestamp;
+    OutPacket.Serialize(Cookie, CookieByteSize);
+    OutPacket.WriteBit(1); // Termination
 
     State = EHandshakeState::Initialized;
     return !OutPacket.IsError();
@@ -133,29 +221,31 @@ bool FStatelessConnectHandlerComponent::CreateChallengeAck(FBitWriter& OutPacket
 
 bool FStatelessConnectHandlerComponent::ProcessChallenge(FBitReader& InPacket, FBitWriter& OutResponse)
 {
-    // Client receives challenge, echoes back the cookie
-    uint8 Magic, Type;
-    InPacket.Serialize(&Magic, 1);
-    InPacket.Serialize(&Type, 1);
+    // Client side: receives [RestartBit][SecretId][Timestamp][Cookie] (after Magic+HandshakeBit consumed)
+
+    uint8 bRestartHandshake = InPacket.ReadBit();
+    uint8 SecretId = InPacket.ReadBit();
+
+    double Timestamp = 0.0;
+    InPacket << Timestamp;
 
     uint8 Cookie[CookieByteSize];
     InPacket.Serialize(Cookie, CookieByteSize);
 
-    if (InPacket.IsError())
+    if (InPacket.IsError() || Timestamp <= 0.0)
     {
         return false;
     }
 
-    // Store for reference
     FMemory::Memcpy(LastCookie, Cookie, CookieByteSize);
 
-    // Build response with same cookie
-    OutResponse.WriteBit(0);
-    uint8 RespMagic = HandshakeMagic;
-    OutResponse.Serialize(&RespMagic, 1);
-    uint8 RespType = static_cast<uint8>(EHandshakePacketType::ChallengeResponse);
-    OutResponse.Serialize(&RespType, 1);
+    WriteFortniteMagicHeader(OutResponse);
+    OutResponse.WriteBit(1); // HandshakeBit
+    OutResponse.WriteBit(0); // RestartBit
+    OutResponse.WriteBit(SecretId);
+    OutResponse << Timestamp;
     OutResponse.Serialize(Cookie, CookieByteSize);
+    OutResponse.WriteBit(1); // Termination
 
     State = EHandshakeState::SentChallengeResponse;
     return !OutResponse.IsError();
@@ -163,13 +253,18 @@ bool FStatelessConnectHandlerComponent::ProcessChallenge(FBitReader& InPacket, F
 
 bool FStatelessConnectHandlerComponent::ProcessChallengeAck(FBitReader& InPacket)
 {
-    uint8 Magic, Type;
-    InPacket.Serialize(&Magic, 1);
-    InPacket.Serialize(&Type, 1);
+    // Ack from server (after Magic + HandshakeBit consumed by caller):
+    // [RestartBit:1][SecretIdBit:1][Timestamp:64=-1.0][Cookie:160]
 
-    if (InPacket.IsError() || Magic != HandshakeMagic || Type != static_cast<uint8>(EHandshakePacketType::ChallengeAck))
+    uint8 bRestartHandshake = InPacket.ReadBit();
+    uint8 SecretId = InPacket.ReadBit();
+
+    double Timestamp = 0.0;
+    InPacket << Timestamp;
+
+    if (InPacket.IsError() || Timestamp >= 0.0)
     {
-        return false;
+        return false; // Ack has negative timestamp
     }
 
     State = EHandshakeState::Initialized;
@@ -178,14 +273,8 @@ bool FStatelessConnectHandlerComponent::ProcessChallengeAck(FBitReader& InPacket
 
 bool FStatelessConnectHandlerComponent::IsHandshakePacket(const uint8* Data, int32 DataLen)
 {
-    // Handshake packets start with bit 0 = 0 (game packets have bit 0 = 1)
-    // Then magic byte 0x5A
-    if (DataLen < 3) return false;
-
-    // Check if top bit of first byte is 0 (not a game packet)
-    if (Data[0] & 0x80) return false;
-
-    // After the bit, check for magic byte (accounting for bit offset)
-    // In practice, the first full byte after the control bit contains the magic
-    return Data[1] == HandshakeMagic;
+    // Fortnite 17.50 prepends 4-bit MagicHeader (0b0111 LSB-first = bits 0,1,2 set, bit 3 clear)
+    // followed by the HandshakeBit (bit 4). Mask = 0x17 (bits 0,1,2,4), expected = 0x17.
+    if (DataLen < 1) return false;
+    return (Data[0] & 0x17) == 0x17;
 }

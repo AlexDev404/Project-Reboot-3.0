@@ -7,6 +7,7 @@
 #include "net/replication.h"
 #include "game/game_mode.h"
 #include "game/game_state.h"
+#include "game/player_controller.h"
 #include "util/logging.h"
 #include "util/config.h"
 
@@ -40,6 +41,27 @@ static UE4NetDriver* GUE4NetDriver = nullptr;
 #endif
 static std::unique_ptr<AFortGameModeAthena> GGameMode;
 static std::unique_ptr<AFortGameStateAthena> GGameState;
+
+// =============================================================================
+// Bridge callbacks - called from ue4_net_bridge.cpp to avoid header conflicts
+// =============================================================================
+
+void Engine_OnPlayerConnected(uint32_t ConnectionId)
+{
+    if (!GGameMode) return;
+
+    auto* PC = new AFortPlayerControllerAthena();
+    PC->SetPlayerName(fmt::format("Player{}", ConnectionId));
+
+    GGameMode->HandleStartingNewPlayer(PC);
+    GGameMode->OnPlayerReadyToStartMatch(PC);
+}
+
+void Engine_OnPlayerDisconnected(uint32_t ConnectionId, const std::string& PlayerName)
+{
+    LOG_INFO(LogGame, "Player disconnected: {} (ID={})", PlayerName, ConnectionId);
+    // TODO: Remove from game mode's player lists
+}
 
 UEngine& UEngine::Get()
 {
@@ -95,6 +117,7 @@ bool UEngine::Initialize()
     GGameMode = std::make_unique<AFortGameModeAthena>();
     GGameMode->SetPlaylist(GServerConfig.PlaylistPath);
     GGameMode->InitGame();
+    GameMode = GGameMode.get();
 
     LOG_INFO(LogInit, "Game mode initialized");
 

@@ -36,7 +36,7 @@ void UE4ReplicationManager::AddActor(GameActorPtr Actor, const FName& ClassName,
     ActorToIndex[Actor] = Index;
     NetGUIDToActor[ReplicatedActors[Index].NetGUID.Value] = Actor;
 
-    LOG_DEBUG(LogNet, "Registered actor for UE4 replication: class={} NetGUID={}",
+    LOG_INFO(LogNet, "Registered actor for UE4 replication: class={} NetGUID={}",
         ClassName.ToString(), ReplicatedActors[Index].NetGUID.Value);
 }
 
@@ -217,7 +217,7 @@ void UE4ReplicationManager::SpawnActorOnConnection(FUE4ActorReplicationInfo& Inf
     FBitWriter SpawnWriter(1024);
     Ch->SerializeNewActor(SpawnWriter);
 
-    LOG_DEBUG(LogNet, "Spawned actor (NetGUID={}) on connection {} via actor channel",
+    LOG_INFO(LogNet, "Spawned actor (NetGUID={}) on connection {} via actor channel",
         Info.NetGUID.Value, Connection->GetConnectionId());
 }
 

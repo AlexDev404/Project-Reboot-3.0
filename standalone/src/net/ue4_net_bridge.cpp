@@ -6,6 +6,12 @@
 #include "net/ue4_replication.h"
 #include "util/logging.h"
 
+#include <spdlog/fmt/fmt.h>
+
+// Forward-declared function implemented in engine.cpp (avoids header conflicts)
+extern void Engine_OnPlayerConnected(uint32_t ConnectionId);
+extern void Engine_OnPlayerDisconnected(uint32_t ConnectionId, const std::string& PlayerName);
+
 // =============================================================================
 // Global driver pointer for cross-module access
 // =============================================================================
@@ -54,11 +60,13 @@ bool InitializeDriver(UE4NetDriver* Driver, uint16_t Port)
     // Set up player connection callbacks
     Driver->OnPlayerConnected = [](UE4NetConnection* Conn) {
         LOG_INFO(LogNet, "UE4: Player connected (ID={})", Conn->GetConnectionId());
+        Engine_OnPlayerConnected(Conn->GetConnectionId());
     };
 
     Driver->OnPlayerDisconnected = [](UE4NetConnection* Conn) {
         LOG_INFO(LogNet, "UE4: Player disconnected: {} (ID={})",
             Conn->GetPlayerName(), Conn->GetConnectionId());
+        Engine_OnPlayerDisconnected(Conn->GetConnectionId(), Conn->GetPlayerName());
     };
 
     Driver->OnPlayerLogin = [](UE4NetConnection* Conn, const std::string& URL, const std::string& UniqueId) {
