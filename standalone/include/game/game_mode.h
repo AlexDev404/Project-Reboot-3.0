@@ -10,7 +10,8 @@
 
 class AFortPlayerControllerAthena;
 class AFortPlayerPawnAthena;
-class UNetConnection;
+namespace Reboot { class UNetConnection; }
+using Reboot::UNetConnection;
 
 // =============================================================================
 // Game Phase

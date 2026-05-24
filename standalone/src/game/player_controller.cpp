@@ -6,6 +6,8 @@
 #include "net/net_driver.h"
 #include "util/logging.h"
 
+using namespace Reboot;
+
 void AFortPlayerControllerAthena::Possess(AFortPlayerPawnAthena* InPawn)
 {
     Pawn = InPawn;

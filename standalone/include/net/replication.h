@@ -10,7 +10,8 @@
 #include <unordered_map>
 
 class AActor;
-class UNetConnection;
+using Reboot::UNetDriver;
+using Reboot::UNetConnection;
 
 // =============================================================================
 // Network Relevancy

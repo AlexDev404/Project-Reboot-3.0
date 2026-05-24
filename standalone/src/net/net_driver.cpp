@@ -8,6 +8,8 @@
 #include <spdlog/fmt/fmt.h>
 #include <cstring>
 
+using namespace Reboot;
+
 // =============================================================================
 // FNetPacket serialization helpers
 // =============================================================================

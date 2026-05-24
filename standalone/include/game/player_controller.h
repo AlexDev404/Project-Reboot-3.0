@@ -9,7 +9,8 @@
 
 class AFortPlayerPawnAthena;
 class AFortPlayerStateAthena;
-class UNetConnection;
+namespace Reboot { class UNetConnection; }
+using Reboot::UNetConnection;
 struct FGuid;
 
 // =============================================================================

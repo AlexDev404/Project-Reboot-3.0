@@ -8,7 +8,8 @@
 #include <atomic>
 #include <chrono>
 
-class UNetDriver;
+namespace Reboot { class UNetDriver; }
+using Reboot::UNetDriver;
 class UE4NetDriver;
 class UWorld;
 class AGameMode;

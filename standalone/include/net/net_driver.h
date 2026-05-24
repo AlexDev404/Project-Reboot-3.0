@@ -16,7 +16,6 @@
 #endif
 
 // Forward declarations
-class UNetConnection;
 class AActor;
 
 // =============================================================================
@@ -92,6 +91,8 @@ struct FNetPacket
 // =============================================================================
 // Net Connection - Represents a connected client
 // =============================================================================
+
+namespace Reboot {
 
 class UNetConnection
 {
@@ -201,3 +202,5 @@ private:
     void OnClientDisconnected(UNetConnection* Connection);
     void OnPacketReceived(UNetConnection* Connection, const uint8* Data, size_t Length);
 };
+
+} // namespace Reboot
