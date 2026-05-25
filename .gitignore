@@ -387,3 +387,4 @@ Project Reboot 3.0/x64/Release/Project Reboot 3.0.iobj
 *.pdb
 Build/
 standalone/.claude/settings.local.json
+standalone/MEMORY.md

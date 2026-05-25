@@ -1,0 +1,6 @@
+[submodule "pyrite"]
+	path = pyrite
+	url = https://github.com/AlexDev404/Pyrite
+[submodule "fortcmd"]
+	path = fortcmd
+	url = https://github.com/Milxnor/FortCmd
