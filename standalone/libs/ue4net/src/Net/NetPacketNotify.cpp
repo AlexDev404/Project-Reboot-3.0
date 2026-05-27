@@ -5,12 +5,28 @@
 #include "UE4Net/Serialization/BitReader.h"
 #include "UE4Net/Serialization/BitWriter.h"
 
-static constexpr uint32 HistoryWordCountBits = 4; // CeilLog2(256/32) + 1 = 3 + 1 = 4
-enum { SeqMask = (1 << FNetPacketNotify::SequenceNumberBits) - 1 };
-
-static SIZE_T GetHistoryWordCount(const FNetPacketNotify::FNotificationHeader& Data)
+// Bit layout per real UE4 4.27 source (FPackedHeader):
+//   bits  0-3:  HistoryWordCount
+//   bits  4-17: AckedSeq (14 bits)
+//   bits 18-31: Seq (14 bits)
+namespace
 {
-return Data.HistoryWordCount;
+    enum { HistoryWordCountBits = 4 };
+    enum { SeqMask = (1u << FNetPacketNotify::SequenceNumberBits) - 1u };
+    enum { HistoryWordCountMask = (1u << HistoryWordCountBits) - 1u };
+    enum { AckSeqShift = HistoryWordCountBits };
+    enum { SeqShift = AckSeqShift + FNetPacketNotify::SequenceNumberBits };
+
+    static uint32 PackHeader(FNetPacketNotify::SequenceNumberT Seq,
+                             FNetPacketNotify::SequenceNumberT AckedSeq,
+                             SIZE_T HistoryWordCount)
+    {
+        uint32 Packed = 0u;
+        Packed |= Seq.Get() << SeqShift;
+        Packed |= AckedSeq.Get() << AckSeqShift;
+        Packed |= HistoryWordCount & HistoryWordCountMask;
+        return Packed;
+    }
 }
 
 FNetPacketNotify::FNetPacketNotify()
@@ -32,7 +48,9 @@ InSeq = InitialInSeq;
 InAckSeq = InitialInSeq;
 InAckSeqAck = InitialInSeq;
 OutSeq = InitialOutSeq;
-OutAckSeq = InitialOutSeq;
+// Real UE4: OutAckSeq is initialized to InitialOutSeq - 1 so the first
+// CommitAndIncrementOutSeq produces seq == InitialOutSeq with a valid history window.
+OutAckSeq = SequenceNumberT(static_cast<SequenceNumberT::SequenceT>(InitialOutSeq.Get() - 1));
 }
 
 FNetPacketNotify::SequenceNumberT FNetPacketNotify::CommitAndIncrementOutSeq()
@@ -47,20 +65,20 @@ return AckData.OutSeq;
 
 bool FNetPacketNotify::WriteHeader(FBitWriter& Writer, bool bRefresh)
 {
-SIZE_T HistoryWordCount = GetCurrentSequenceHistoryLength() / SequenceHistoryT::BitsPerWord;
-HistoryWordCount = FMath::Clamp<SIZE_T>(HistoryWordCount, 1, SequenceHistoryT::WordCount);
+SIZE_T HistoryWordCount = FMath::Clamp<SIZE_T>(
+    (GetCurrentSequenceHistoryLength() + SequenceHistoryT::BitsPerWord - 1u) / SequenceHistoryT::BitsPerWord,
+    1u, SequenceHistoryT::WordCount);
 
-WrittenHistoryWordCount = HistoryWordCount;
+WrittenHistoryWordCount = bRefresh ? WrittenHistoryWordCount : HistoryWordCount;
 WrittenInAckSeq = InAckSeq;
 
-// Write header
-uint32 PackedHeader = 0u;
-PackedHeader |= OutSeq.Get() & SeqMask;
-PackedHeader |= (InAckSeq.Get() & SeqMask) << SequenceNumberBits;
-PackedHeader |= (static_cast<uint32>(HistoryWordCount - 1)) << (SequenceNumberBits * 2);
+// Real UE4 packs HistoryWordCount-1 (so 1 word == 0 in the field, 16 words == 15)
+uint32 PackedHeader = PackHeader(OutSeq, InAckSeq, WrittenHistoryWordCount - 1);
 
-Writer.SerializeInt(PackedHeader, 0xFFFFFFFFu);
-InSeqHistory.Write(Writer, HistoryWordCount);
+// Must match real UE4 4.26: uses stream operator (raw 32-bit LE bytes),
+// NOT SerializeInt(which uses a different variable-length bit encoding).
+Writer << PackedHeader;
+InSeqHistory.Write(Writer, WrittenHistoryWordCount);
 
 return !Writer.IsError();
 }
@@ -68,11 +86,11 @@ return !Writer.IsError();
 bool FNetPacketNotify::ReadHeader(FNotificationHeader& Data, FBitReader& Reader) const
 {
 uint32 PackedHeader = 0u;
-Reader.SerializeInt(PackedHeader, 0xFFFFFFFFu);
+Reader << PackedHeader;
 
-Data.Seq = SequenceNumberT(PackedHeader & SeqMask);
-Data.AckedSeq = SequenceNumberT((PackedHeader >> SequenceNumberBits) & SeqMask);
-Data.HistoryWordCount = ((PackedHeader >> (SequenceNumberBits * 2)) & ((1u << HistoryWordCountBits) - 1u)) + 1;
+Data.Seq = SequenceNumberT((PackedHeader >> SeqShift) & SeqMask);
+Data.AckedSeq = SequenceNumberT((PackedHeader >> AckSeqShift) & SeqMask);
+Data.HistoryWordCount = (PackedHeader & HistoryWordCountMask) + 1;
 
 Data.History.Read(Reader, Data.HistoryWordCount);
 
@@ -99,7 +117,9 @@ return NewInAckSeqAck;
 
 void FNetPacketNotify::AckSeq(SequenceNumberT AckedSeq, bool IsAck)
 {
-while (InAckSeq != AckedSeq)
+// Real UE4 uses `AckedSeq > InAckSeq` (not !=) so wraparound or AckedSeq<InAckSeq
+// won't loop forever / underflow the history.
+while (AckedSeq > InAckSeq)
 {
 ++InAckSeq;
 InSeqHistory.AddDeliveryStatus(InAckSeq == AckedSeq ? IsAck : false);
@@ -108,7 +128,13 @@ InSeqHistory.AddDeliveryStatus(InAckSeq == AckedSeq ? IsAck : false);
 
 SIZE_T FNetPacketNotify::GetCurrentSequenceHistoryLength() const
 {
-SequenceNumberT::DifferenceT Diff = SequenceNumberT::Diff(OutSeq, OutAckSeq);
-if (Diff <= 0) return 0;
-return static_cast<SIZE_T>(FMath::Min((SequenceNumberT::DifferenceT)MaxSequenceHistoryLength, Diff));
+// Real UE4 measures the gap between InAckSeq (what we've acked) and
+// InAckSeqAck (what the remote has confirmed seeing our acks for).
+if (InAckSeq >= InAckSeqAck)
+{
+    SequenceNumberT::DifferenceT Diff = SequenceNumberT::Diff(InAckSeq, InAckSeqAck);
+    return static_cast<SIZE_T>(FMath::Min(Diff, (SequenceNumberT::DifferenceT)SequenceHistoryT::Size));
+}
+// Worst case: history wraps; send full
+return SequenceHistoryT::Size;
 }

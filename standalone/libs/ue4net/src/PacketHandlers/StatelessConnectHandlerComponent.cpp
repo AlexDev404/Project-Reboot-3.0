@@ -271,6 +271,18 @@ bool FStatelessConnectHandlerComponent::ProcessChallengeAck(FBitReader& InPacket
     return true;
 }
 
+void FStatelessConnectHandlerComponent::GetChallengeSequenceList(uint16& OutServerSequence, uint16& OutClientSequence) const
+{
+    // Real UE4 4.26 derives both initial sequence numbers from the authorized
+    // cookie so the two peers agree without any extra round-trip. The 14-bit
+    // sequence space matches FNetPacketNotify::SequenceNumberBits.
+    static constexpr uint16 SequenceMask = (1u << 14) - 1u; // 0x3FFF
+    const uint16 RawServer = static_cast<uint16>(LastCookie[0]) | (static_cast<uint16>(LastCookie[1]) << 8);
+    const uint16 RawClient = static_cast<uint16>(LastCookie[2]) | (static_cast<uint16>(LastCookie[3]) << 8);
+    OutServerSequence = RawServer & SequenceMask;
+    OutClientSequence = RawClient & SequenceMask;
+}
+
 bool FStatelessConnectHandlerComponent::IsHandshakePacket(const uint8* Data, int32 DataLen)
 {
     // Fortnite 17.50 prepends 4-bit MagicHeader (0b0111 LSB-first = bits 0,1,2 set, bit 3 clear)

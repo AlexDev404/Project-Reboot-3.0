@@ -86,6 +86,16 @@ public:
     // Get the timestamp used in cookie
     double GetTimestamp() const { return LastTimestamp; }
 
+    // Get a pointer to the authorized (last-verified) cookie. Valid after a
+    // successful ProcessChallengeResponse / ProcessChallenge call.
+    const uint8* GetAuthorisedCookie() const { return LastCookie; }
+
+    // Derive the initial packet sequence numbers from the authorized cookie.
+    // Matches the real UE4 4.26 StatelessConnectHandlerComponent behavior so
+    // both peers compute identical starting sequences. Each value is masked to
+    // the 14-bit sequence space used by FNetPacketNotify.
+    void GetChallengeSequenceList(uint16& OutServerSequence, uint16& OutClientSequence) const;
+
 private:
     // Server secrets for HMAC (double-buffered for rotation)
     uint8 ActiveSecret[SecretByteSize];

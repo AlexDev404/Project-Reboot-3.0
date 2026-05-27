@@ -57,6 +57,12 @@ public:
     FStatelessConnectHandlerComponent HandshakeHandler;
     bool bHandshakeComplete;
 
+    // Snap PacketNotify sequence state to the remote's view on the first
+    // post-handshake packet. Real Fortnite derives initial sequence numbers
+    // from the cookie via a derivation we haven't fully reverse-engineered, so
+    // we trust the first received header instead.
+    bool bFirstPostHandshakePacket;
+
     // Channels
     UChannel* Channels[MAX_CHANNELS];
     UControlChannel* GetControlChannel() { return static_cast<UControlChannel*>(Channels[0]); }

@@ -37,8 +37,14 @@ struct FBunchHeader
     bool bHasMustBeMappedGUIDs;
 
     int32 ChIndex;
-    EChannelType ChType;
-    int32 ChSequence;    // Reliable sequence number (if reliable)
+    EChannelType ChType;       // Derived from ChNameIndex for compatibility (Control/Actor/Voice)
+    int32 ChSequence;          // Reliable sequence number (if reliable)
+
+    // UE 4.26 wire field. When bChNameIsHardcoded == true, ChNameIndex is an EName.
+    // Set only if (bReliable || bOpen). Otherwise ChNameIsValid == false.
+    bool bChNameIsValid;
+    bool bChNameIsHardcoded;
+    uint32 ChNameIndex;
 };
 
 /**

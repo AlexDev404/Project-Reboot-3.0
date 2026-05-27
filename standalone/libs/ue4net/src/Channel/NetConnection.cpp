@@ -6,6 +6,30 @@
 #include "UE4Net/Channel/NetDriver.h"
 
 #include <chrono>
+#include <cstdio>
+
+// Temporary diagnostic — set to 1 to trace packet parsing
+#define UE4NET_TRACE_RECV 1
+#if UE4NET_TRACE_RECV
+  #define UE4NET_TRACE(...) do { std::fprintf(stderr, "[ue4net] " __VA_ARGS__); std::fprintf(stderr, "\n"); std::fflush(stderr); } while (0)
+#else
+  #define UE4NET_TRACE(...) (void)0
+#endif
+
+// UE 4.26 FOodleHandlerComponent::Outgoing only writes its bCompressedPacket
+// marker bit for packets at or above net.OodleMinSizeForCompression (default 19
+// bytes payload after the StatelessConnect 5-bit preamble). Even with the
+// Oodle bypass installed in Pyrite, that conditional bit may still be present
+// in the wire format depending on how the bypass intercepted the function.
+// Flip this to 1 if the >=19-byte stream is one bit offset relative to the
+// <19-byte stream.
+#ifndef UE4NET_CONSUME_OODLE_MARKER_BIT
+#define UE4NET_CONSUME_OODLE_MARKER_BIT 0
+#endif
+
+// Threshold above which the Oodle marker bit is expected (raw UDP payload).
+// net.OodleMinSizeForCompression=19 from Fortnite 17.50 CVar dump.
+static constexpr int32 GOodleCompressionThresholdBytes = 19;
 
 static double GetTime()
 {
@@ -19,6 +43,7 @@ UNetConnection::UNetConnection()
     , LastReceiveTime(0.0)
     , LastSendTime(0.0)
     , bHandshakeComplete(false)
+    , bFirstPostHandshakePacket(true)
     , InPacketId(0)
     , OutPacketId(0)
     , OutAckPacketId(0)
@@ -158,6 +183,19 @@ void UNetConnection::ReceivedRawPacket(const uint8* Data, int32 Count)
                 // Server: This is a client's challenge response
                 if (HandshakeHandler.ProcessChallengeResponse(Reader, RemoteAddressStr))
                 {
+                    // Derive cookie-based initial sequence numbers BEFORE sending
+                    // the challenge ack — the ack itself is our first packet at
+                    // OutSeq = ServerSequence, and client uses the same cookie to
+                    // expect that exact sequence value.
+                    uint16 ServerSeq = 0;
+                    uint16 ClientSeq = 0;
+                    HandshakeHandler.GetChallengeSequenceList(ServerSeq, ClientSeq);
+                    PacketNotify.Init(
+                        FNetPacketNotify::SequenceNumberT(ClientSeq),
+                        FNetPacketNotify::SequenceNumberT(ServerSeq));
+                    UE4NET_TRACE("Handshake complete: cookie-derived ClientSeq=%u ServerSeq=%u",
+                        (unsigned)ClientSeq, (unsigned)ServerSeq);
+
                     // Send challenge ack
                     FBitWriter AckPacket(256, true);
                     HandshakeHandler.CreateChallengeAck(AckPacket);
@@ -185,19 +223,79 @@ void UNetConnection::ReceivedRawPacket(const uint8* Data, int32 Count)
     }
 
     // Game packet: skip MagicHeader(4) + HandshakeBit(0 = game)
+#if UE4NET_TRACE_RECV
+    {
+        char hex[3 * 64 + 4] = {0};
+        int n = Count < 32 ? Count : 32;
+        for (int i = 0; i < n; ++i)
+        {
+            std::snprintf(hex + i * 3, 4, "%02X ", (unsigned)Data[i]);
+        }
+        UE4NET_TRACE("RawGamePacket(%d bytes): %s%s",
+            Count, hex, Count > 32 ? "..." : "");
+    }
+#endif
     FBitReader Reader(const_cast<uint8*>(Data), static_cast<int64>(Count) * 8);
+    // Strip the 4-bit Fortnite MagicHeader (0b0111 LSB-first). Do NOT strip a
+    // separate "handshake bit" -- bit 4 in the wire format is a discriminator
+    // used by IsHandshakePacket() at the byte level, but for non-handshake
+    // game packets that bit position is the LSB of PacketNotify's HWC field
+    // and must be left in the stream.
     Reader.ReadBit(); Reader.ReadBit(); Reader.ReadBit(); Reader.ReadBit();
-    Reader.ReadBit();
+
+#if UE4NET_CONSUME_OODLE_MARKER_BIT
+    // Empirically (Fortnite 17.50, Pyrite Oodle hook in place): only packets
+    // whose post-magic UDP payload is >= net.OodleMinSizeForCompression (19)
+    // carry the bCompressedPacket marker bit. Smaller packets (e.g. 11-byte
+    // KeepAlive/acks) have no Oodle bit at all -- consuming one corrupts the
+    // PackedHeader HWC field. Gate by raw packet size.
+    if (Count >= GOodleCompressionThresholdBytes)
+    {
+        uint8 OodleBit = Reader.ReadBit();
+        UE4NET_TRACE("Consumed Oodle marker bit (val=%u, size=%d)", (unsigned)OodleBit, Count);
+    }
+#endif
+
     ReceivedPacket(Reader);
 }
 
 void UNetConnection::ReceivedPacket(FBitReader& Reader)
 {
+    int64 PacketBits = Reader.GetBitsLeft();
+    UE4NET_TRACE("ReceivedPacket: %lld bits left at entry", PacketBits);
+
     // Read packet header (NetPacketNotify)
     FNetPacketNotify::FNotificationHeader NotifyHeader;
     if (!PacketNotify.ReadHeader(NotifyHeader, Reader))
     {
+        UE4NET_TRACE("  -> PacketNotify.ReadHeader FAILED");
         return; // Invalid packet
+    }
+    UE4NET_TRACE("  -> ReadHeader OK: Seq=%u AckedSeq=%u HistoryWords=%u (InSeq=%u OutSeq=%u OutAckSeq=%u, %lld bits left)",
+        (unsigned)NotifyHeader.Seq.Get(), (unsigned)NotifyHeader.AckedSeq.Get(),
+        (unsigned)NotifyHeader.HistoryWordCount,
+        (unsigned)PacketNotify.GetInSeq().Get(),
+        (unsigned)PacketNotify.GetOutSeq().Get(),
+        (unsigned)PacketNotify.GetOutAckSeq().Get(),
+        Reader.GetBitsLeft());
+
+    // Snap to the client's view of sequence numbers on the first post-handshake
+    // packet. Cookie-derived init is approximate; trusting the first observed
+    // header guarantees the strict GetSequenceDelta check passes.
+    if (bFirstPostHandshakePacket)
+    {
+        bFirstPostHandshakePacket = false;
+        const uint16 ClientSeq = NotifyHeader.Seq.Get();
+        const uint16 ClientAckedSeq = NotifyHeader.AckedSeq.Get();
+        const uint16 NewInSeq = static_cast<uint16>((ClientSeq - 1) & 0x3FFF);
+        const uint16 NewOutSeq = static_cast<uint16>((ClientAckedSeq + 1) & 0x3FFF);
+        PacketNotify.Init(
+            FNetPacketNotify::SequenceNumberT(NewInSeq),
+            FNetPacketNotify::SequenceNumberT(NewOutSeq));
+        UE4NET_TRACE("  -> snap: InSeq=%u OutSeq=%u OutAckSeq=%u",
+            (unsigned)PacketNotify.GetInSeq().Get(),
+            (unsigned)PacketNotify.GetOutSeq().Get(),
+            (unsigned)PacketNotify.GetOutAckSeq().Get());
     }
 
     // Process acks
@@ -208,36 +306,72 @@ void UNetConnection::ReceivedPacket(FBitReader& Reader)
     auto SeqDelta = PacketNotify.Update(NotifyHeader, AckFunc);
     if (SeqDelta <= 0)
     {
+        UE4NET_TRACE("  -> SeqDelta=%d (rejected)", (int)SeqDelta);
         return; // Duplicate or out of order
     }
+    UE4NET_TRACE("  -> SeqDelta=%d, accepting", (int)SeqDelta);
 
     // Acknowledge this received packet
     PacketNotify.AckSeq(NotifyHeader.Seq);
 
     InPacketId++;
 
-    // Read bunches from packet
+    // PacketInfo block for Fortnite 17.50 (EngineNetVer=18).
+    // Verified by Binja disassembly of UNetConnection::ReceivedPacket
+    // (sub_140F79464): the layout is NOT the mainline UE 4.26 layout. It is:
+    //   bHasServerFrameTime  : 1 bit
+    //   if bHasServerFrameTime:
+    //       jitter           : SerializeInt(max=1024) = 10 bits
+    // Total 1 OR 11 bits, gated on EngineNetVer >= 14 (which v18 satisfies).
+    // No RemoteInKBytesPerSecondByte read in this fork.
+    // Bunch start = bit 69 (bHasFT=0) or bit 79 (bHasFT=1).
+    {
+        uint8 bHasServerFrameTime = Reader.ReadBit();
+        uint32 PacketJitterClockTimeMS = 0;
+        if (bHasServerFrameTime)
+        {
+            Reader.SerializeInt(PacketJitterClockTimeMS, 1024);
+        }
+        UE4NET_TRACE("  -> PacketInfo (NetVer18): bHasFT=%u jitter=%u (pos=%lld bits left=%lld)",
+            (unsigned)bHasServerFrameTime, (unsigned)PacketJitterClockTimeMS,
+            (long long)Reader.GetPosBits(), Reader.GetBitsLeft());
+    }
+
+    int BunchCount = 0;
+    // UE 4.26 bunch loop: there is NO per-bunch "more bunches" marker bit.
+    // Bunches are parsed back-to-back until the reader runs out. The single
+    // packet-trailer bit (set in UNetConnection::FlushNet via SendBuffer.WriteBit(1))
+    // is stripped before we get here by the MSB walk that sizes the FBitReader
+    // to the highest set bit.
     while (!Reader.AtEnd() && !Reader.IsError())
     {
-        // Check for end-of-packet marker (1 bit = 0 means more bunches, 1 = end)
-        uint8 bHasMoreBunches = Reader.ReadBit();
-        if (!bHasMoreBunches || Reader.IsError())
-        {
-            break;
-        }
-
-        // Read bunch header
         FBunchHeader BunchHeader;
         if (!FInBunch::ReadBunchHeader(Reader, BunchHeader))
         {
+            UE4NET_TRACE("  -> ReadBunchHeader FAILED (bunches so far=%d)", BunchCount);
             break;
         }
+        UE4NET_TRACE("  -> Bunch %d: ChIndex=%d ChType=%d bOpen=%d bClose=%d bReliable=%d "
+                     "bPartial=%d ChSeq=%d ChNameHardcoded=%d ChNameIdx=%u",
+            BunchCount, (int)BunchHeader.ChIndex, (int)BunchHeader.ChType,
+            (int)BunchHeader.bOpen, (int)BunchHeader.bClose, (int)BunchHeader.bReliable,
+            (int)BunchHeader.bPartial, (int)BunchHeader.ChSequence,
+            (int)BunchHeader.bChNameIsHardcoded, (unsigned)BunchHeader.ChNameIndex);
+        BunchCount++;
 
-        // Read bunch data size
+        // BunchDataBits: experiment with SerializeIntPacked (1+ bytes) instead
+        // of fixed-width ReadInt. The 13-bit ReadInt approach has consistently
+        // produced invalid values for plaintext NMT_Hello bunches.
         uint32 BunchDataBits = 0;
+        const int64 preBdb = Reader.GetPosBits();
         Reader.SerializeIntPacked(BunchDataBits);
+        const int64 bdbBits = Reader.GetPosBits() - preBdb;
+        UE4NET_TRACE("  -> BunchDataBits=%u (read %lld bits via SerializeIntPacked, bits left=%lld)",
+            (unsigned)BunchDataBits, (long long)bdbBits, (long long)Reader.GetBitsLeft());
         if (Reader.IsError() || BunchDataBits > (uint32)Reader.GetBitsLeft())
         {
+            UE4NET_TRACE("  -> BunchDataBits invalid: %u (bits left=%lld, error=%d)",
+                (unsigned)BunchDataBits, Reader.GetBitsLeft(), (int)Reader.IsError());
             break;
         }
 
@@ -264,6 +398,8 @@ void UNetConnection::ReceivedPacket(FBitReader& Reader)
 
         if (Channel)
         {
+            UE4NET_TRACE("  -> delivering bunch to channel %d (type %d)",
+                (int)BunchHeader.ChIndex, (int)Channel->ChType);
             // Create FInBunch and deliver to channel
             FInBunch InBunch(this, BunchData.GetData(), BunchDataBits);
             InBunch.PacketId = InPacketId;
