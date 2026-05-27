@@ -235,7 +235,25 @@ void UNetConnection::ReceivedRawPacket(const uint8* Data, int32 Count)
             Count, hex, Count > 32 ? "..." : "");
     }
 #endif
-    FBitReader Reader(const_cast<uint8*>(Data), static_cast<int64>(Count) * 8);
+    // UE4 packet framing: FlushNet writes a trailing termination bit (a `1`)
+    // as the last bit of every outgoing packet, then byte-aligns with zeros.
+    // The receiver must locate that trailing `1` (= the highest set bit in
+    // the packet) and treat it as end-of-data — bits AT and AFTER it are not
+    // bunch content. Without this, the parser keeps trying to read "bunches"
+    // out of the stop-bit + zero padding after the last real bunch.
+    int64 PacketBitCount = static_cast<int64>(Count) * 8;
+    for (int i = Count - 1; i >= 0; --i)
+    {
+        if (Data[i] == 0) { PacketBitCount -= 8; continue; }
+        // Find the highest set bit in this byte (LSB-first stream convention:
+        // bit 0 of a byte is its low bit, bit 7 is its high bit).
+        for (int b = 7; b >= 0; --b)
+        {
+            if (Data[i] & (1u << b)) { PacketBitCount = static_cast<int64>(i) * 8 + b; break; }
+        }
+        break;
+    }
+    FBitReader Reader(const_cast<uint8*>(Data), PacketBitCount);
     // Strip the 4-bit Fortnite MagicHeader (0b0111 LSB-first). Do NOT strip a
     // separate "handshake bit" -- bit 4 in the wire format is a discriminator
     // used by IsHandshakePacket() at the byte level, but for non-handshake
@@ -339,12 +357,23 @@ void UNetConnection::ReceivedPacket(FBitReader& Reader)
 
     int BunchCount = 0;
     // UE 4.26 bunch loop: there is NO per-bunch "more bunches" marker bit.
-    // Bunches are parsed back-to-back until the reader runs out. The single
-    // packet-trailer bit (set in UNetConnection::FlushNet via SendBuffer.WriteBit(1))
-    // is stripped before we get here by the MSB walk that sizes the FBitReader
-    // to the highest set bit.
+    // Bunches are parsed back-to-back until the reader runs out. The packet-
+    // trailer bit (set in UNetConnection::FlushNet via SendBuffer.WriteBit(1))
+    // is stripped above via the highest-set-bit scan, so Num points just
+    // before the stop bit.
+    //
+    // Smallest legal bunch: ~5 flag bits + 8 ChIndex + 8 BDB field + ≥1 data bit
+    // ≈ 22 bits. Bail before entering ReadBunchHeader if fewer remain — those
+    // are leftover sub-bit-boundary fragments after the last real bunch.
+    constexpr int64 kMinBunchBits = 22;
     while (!Reader.AtEnd() && !Reader.IsError())
     {
+        if (Reader.GetBitsLeft() < kMinBunchBits)
+        {
+            UE4NET_TRACE("  -> bunch loop done: %lld trailing bits (below min, post-bunch padding)",
+                Reader.GetBitsLeft());
+            break;
+        }
         FBunchHeader BunchHeader;
         if (!FInBunch::ReadBunchHeader(Reader, BunchHeader))
         {
