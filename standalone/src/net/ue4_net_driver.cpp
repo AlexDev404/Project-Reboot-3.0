@@ -12,7 +12,6 @@
 
 #include <spdlog/fmt/fmt.h>
 #include <cstring>
-#include <chrono>
 
 #ifdef _WIN32
     #include <winsock2.h>
@@ -198,6 +197,7 @@ bool UE4NetDriver::Initialize(uint16_t Port)
                     && WrapperConn->State == UE4NetConnection::EState::Pending)
                 {
                     WrapperConn->State = UE4NetConnection::EState::Open;
+                    WrapperConn->bChallengeSent = false;
 
                     UControlChannel* CtrlCh = WrapperConn->InternalConnection->GetControlChannel();
                     if (CtrlCh)
@@ -206,15 +206,10 @@ bool UE4NetDriver::Initialize(uint16_t Port)
                             HandleControlMessage(ConnPtr, Type, Data);
                         };
 
-                        // Kick off the control-channel flow immediately after
-                        // stateless handshake. In captured 17.50 sessions, the
-                        // server's first post-handshake game packet is a control
-                        // bunch (not ACK-only), and clients are sensitive to this
-                        // sequencing.
-                        const std::string ChallengeStr = fmt::format("CHALLENGE_{:08X}_{:08X}",
-                            static_cast<uint32_t>(std::chrono::steady_clock::now().time_since_epoch().count()),
-                            WrapperConn->ConnectionId);
-                        CtrlCh->SendChallenge(FString(ChallengeStr.c_str()));
+                        // Some clients do not reliably deliver/parse early NMT_Hello,
+                        // so emit a single bootstrap challenge immediately after
+                        // handshake and dedupe it against HandleHello.
+                        SendChallengeOnce(WrapperConn.get(), "post-handshake");
                     }
 
                     LOG_INFO(LogNet, "UE4 Connection {} handshake complete", WrapperConn->ConnectionId);
@@ -572,23 +567,35 @@ void UE4NetDriver::HandleControlMessage(UE4NetConnection* Connection, ENMTType T
     }
 }
 
+void UE4NetDriver::SendChallengeOnce(UE4NetConnection* Connection, const char* SourceTag)
+{
+    if (!Connection || !Connection->InternalConnection || Connection->bChallengeSent)
+    {
+        return;
+    }
+
+    UControlChannel* CtrlCh = Connection->InternalConnection->GetControlChannel();
+    if (!CtrlCh)
+    {
+        return;
+    }
+
+    const std::string ChallengeStr = fmt::format("CHALLENGE_{:08X}",
+        Connection->GetConnectionId());
+
+    CtrlCh->SendChallenge(FString(ChallengeStr.c_str()));
+    Connection->bChallengeSent = true;
+    LOG_INFO(LogNet, "Sent NMT_Challenge to connection {} ({})",
+        Connection->GetConnectionId(), SourceTag ? SourceTag : "unknown");
+}
+
 void UE4NetDriver::HandleHello(UE4NetConnection* Connection, FBitReader& Data)
 {
     // Client sends: protocol version, encryption flag, token
     // We respond with NMT_Challenge
 
     LOG_INFO(LogNet, "Received NMT_Hello from connection {}", Connection->GetConnectionId());
-
-    // Generate a challenge string (random nonce)
-    std::string ChallengeStr = fmt::format("CHALLENGE_{:08X}_{:08X}",
-        static_cast<uint32_t>(std::chrono::steady_clock::now().time_since_epoch().count()),
-        Connection->GetConnectionId());
-
-    UControlChannel* CtrlCh = Connection->InternalConnection->GetControlChannel();
-    if (CtrlCh)
-    {
-        CtrlCh->SendChallenge(FString(ChallengeStr.c_str()));
-    }
+    SendChallengeOnce(Connection, "hello");
 }
 
 void UE4NetDriver::HandleLogin(UE4NetConnection* Connection, FBitReader& Data)

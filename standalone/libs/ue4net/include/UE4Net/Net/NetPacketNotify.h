@@ -45,7 +45,7 @@ bool ReadHeader(FNotificationHeader& Data, FBitReader& Reader) const;
 
 SequenceNumberT::DifferenceT GetSequenceDelta(const FNotificationHeader& NotificationData)
 {
-if (NotificationData.Seq > InSeq && NotificationData.AckedSeq >= OutAckSeq && OutSeq > NotificationData.AckedSeq)
+if (NotificationData.Seq > InSeq)
 {
 return SequenceNumberT::Diff(NotificationData.Seq, InSeq);
 }

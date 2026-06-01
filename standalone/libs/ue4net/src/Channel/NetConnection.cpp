@@ -286,17 +286,41 @@ void UNetConnection::ReceivedRawPacket(const uint8* Data, int32 Count)
             --C.BitSize;
         }
 
-        FBitReader Probe(C.Bytes.GetData(), C.BitSize);
-        if (PacketNotify.ReadHeader(C.Header, Probe))
+        auto ScoreHeader = [&](int32 ScoreBias = 0)
         {
             C.bHeaderValid = true;
-            C.Score = 0;
+            C.Score = ScoreBias;
             if (C.Header.HistoryWordCount <= 2) C.Score += 4;
             else if (C.Header.HistoryWordCount <= 6) C.Score += 2;
             else C.Score -= 4;
 
+            const auto SeqDiff = FNetPacketNotify::SequenceNumberT::Diff(C.Header.Seq, PacketNotify.GetInSeq());
             if (PacketNotify.GetSequenceDelta(C.Header) > 0) C.Score += 3;
+            else if (SeqDiff < 0) C.Score -= 3;
+
+            const auto AckDiff = FNetPacketNotify::SequenceNumberT::Diff(C.Header.AckedSeq, PacketNotify.GetOutAckSeq());
+            if (AckDiff >= 0) C.Score += 2;
+            else C.Score -= 2;
+
             if (PreambleBits == 6) C.Score += 1; // canonical Fortnite game preamble
+        };
+
+        // Primary path: UE4 payload with trailing stop-bit removed.
+        FBitReader Probe(C.Bytes.GetData(), C.BitSize);
+        if (PacketNotify.ReadHeader(C.Header, Probe))
+        {
+            ScoreHeader();
+        }
+        else
+        {
+            // Fallback for borderline packets where the stop-bit heuristic trims
+            // too aggressively: probe full payload bits as-is.
+            FBitReader RawProbe(C.Bytes.GetData(), C.PayloadBits);
+            if (PacketNotify.ReadHeader(C.Header, RawProbe))
+            {
+                C.BitSize = C.PayloadBits;
+                ScoreHeader(-1);
+            }
         }
 
         return C;
@@ -354,19 +378,18 @@ bool UNetConnection::ReceivedPacketTryParse(FBitReader& Reader)
         (unsigned)PacketNotify.GetOutAckSeq().Get(),
         Reader.GetBitsLeft());
 
-    // Snap to the client's view of sequence numbers on the first post-handshake
-    // packet. Cookie-derived init is approximate; trusting the first observed
-    // header guarantees the strict GetSequenceDelta check passes.
+    // Snap inbound sequence on the first post-handshake packet. Cookie-derived
+    // inbound init can be approximate, but outbound sequence state must remain
+    // monotonic with what we've already sent.
     if (bFirstPostHandshakePacket)
     {
         bFirstPostHandshakePacket = false;
         const uint16 ClientSeq = NotifyHeader.Seq.Get();
-        const uint16 ClientAckedSeq = NotifyHeader.AckedSeq.Get();
         const uint16 NewInSeq = static_cast<uint16>((ClientSeq - 1) & 0x3FFF);
-        const uint16 NewOutSeq = static_cast<uint16>((ClientAckedSeq + 1) & 0x3FFF);
+        const uint16 PreserveOutSeq = PacketNotify.GetOutSeq().Get();
         PacketNotify.Init(
             FNetPacketNotify::SequenceNumberT(NewInSeq),
-            FNetPacketNotify::SequenceNumberT(NewOutSeq));
+            FNetPacketNotify::SequenceNumberT(PreserveOutSeq));
         UE4NET_TRACE("  -> snap: InSeq=%u OutSeq=%u OutAckSeq=%u",
             (unsigned)PacketNotify.GetInSeq().Get(),
             (unsigned)PacketNotify.GetOutSeq().Get(),
@@ -385,6 +408,7 @@ bool UNetConnection::ReceivedPacketTryParse(FBitReader& Reader)
         return true; // ReadHeader OK but duplicate/out-of-order — don't retry at different offset
     }
     UE4NET_TRACE("  -> SeqDelta=%d, accepting", (int)SeqDelta);
+    bAllowAckOnlyPackets = true;
 
     // Acknowledge this received packet
     PacketNotify.AckSeq(NotifyHeader.Seq);
@@ -511,10 +535,6 @@ bool UNetConnection::ReceivedPacketTryParse(FBitReader& Reader)
         }
     }
 
-    if (BunchCount > 0)
-    {
-        bAllowAckOnlyPackets = true;
-    }
     return true;
 }
 
@@ -532,10 +552,11 @@ void UNetConnection::FlushNet(bool bIgnoreSimulation)
         // Only ACK if we've actually received new packets since last send
         if (PacketsReceived == 0 || !bHandshakeComplete) return;
         if (!bAllowAckOnlyPackets) return;
-        if (PostHandshakeNonAckPacketsSent < 3) return;
+        const double SinceHandshake = HandshakeCompleteTime > 0.0 ? (GetTime() - HandshakeCompleteTime) : 0.0;
+        if (PostHandshakeNonAckPacketsSent < 3 && SinceHandshake < 0.35) return;
         // Match observed startup ordering: after handshake, server sends initial
         // control bunches first and ACK-only traffic resumes after that burst.
-        if (HandshakeCompleteTime > 0.0 && (GetTime() - HandshakeCompleteTime) < 0.20) return;
+        if (HandshakeCompleteTime > 0.0 && SinceHandshake < 0.20) return;
         double Now = GetTime();
         if (Now - LastSendTime < 0.05) return; // Cap ACK rate ~20/s
     }

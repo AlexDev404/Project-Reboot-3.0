@@ -123,6 +123,7 @@ private:
 
     // The ue4net connection object (owned by the ue4net driver)
     UNetConnection* InternalConnection = nullptr;
+    bool bChallengeSent = false;
 
     // Track actor channels by NetGUID
     std::unordered_map<uint32_t, int32> NetGUIDToChannelIndex;
@@ -219,6 +220,7 @@ private:
 
     // NMT (control channel) message handling
     void HandleControlMessage(UE4NetConnection* Connection, ENMTType Type, FBitReader& Data);
+    void SendChallengeOnce(UE4NetConnection* Connection, const char* SourceTag);
     void HandleHello(UE4NetConnection* Connection, FBitReader& Data);
     void HandleLogin(UE4NetConnection* Connection, FBitReader& Data);
     void HandleNetspeed(UE4NetConnection* Connection, FBitReader& Data);
