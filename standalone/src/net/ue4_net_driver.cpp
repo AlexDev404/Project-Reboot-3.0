@@ -205,6 +205,16 @@ bool UE4NetDriver::Initialize(uint16_t Port)
                         CtrlCh->OnControlMessage = [this, ConnPtr = WrapperConn.get()](ENMTType Type, FBitReader& Data) {
                             HandleControlMessage(ConnPtr, Type, Data);
                         };
+
+                        // Kick off the control-channel flow immediately after
+                        // stateless handshake. In captured 17.50 sessions, the
+                        // server's first post-handshake game packet is a control
+                        // bunch (not ACK-only), and clients are sensitive to this
+                        // sequencing.
+                        const std::string ChallengeStr = fmt::format("CHALLENGE_{:08X}_{:08X}",
+                            static_cast<uint32_t>(std::chrono::steady_clock::now().time_since_epoch().count()),
+                            WrapperConn->ConnectionId);
+                        CtrlCh->SendChallenge(FString(ChallengeStr.c_str()));
                     }
 
                     LOG_INFO(LogNet, "UE4 Connection {} handshake complete", WrapperConn->ConnectionId);

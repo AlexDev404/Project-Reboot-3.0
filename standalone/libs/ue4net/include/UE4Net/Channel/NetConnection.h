@@ -56,6 +56,9 @@ public:
     // Handshake
     FStatelessConnectHandlerComponent HandshakeHandler;
     bool bHandshakeComplete;
+    double HandshakeCompleteTime;
+    bool bAllowAckOnlyPackets;
+    int32 PostHandshakeNonAckPacketsSent;
 
     // Snap PacketNotify sequence state to the remote's view on the first
     // post-handshake packet. Real Fortnite derives initial sequence numbers
@@ -76,8 +79,9 @@ public:
     virtual void ReceivedRawPacket(const uint8* Data, int32 Count);
     virtual void FlushNet(bool bIgnoreSimulation = false);
 
-    // Internal: Process a received packet (after handshake)
-    void ReceivedPacket(FBitReader& Reader);
+    // Internal: Try parsing a received game packet. Returns false if
+    // ReadHeader fails (no state mutated), true otherwise.
+    bool ReceivedPacketTryParse(FBitReader& Reader);
 
     // Internal: Assemble and send a packet
     void SendPacket(FBitWriter& Writer);
@@ -108,6 +112,8 @@ public:
     using FOnBunchReceived = std::function<void(FInBunch& Bunch)>;
 
     FOnConnectionStateChanged OnStateChanged;
+
+    friend class UChannel;
 
 private:
     // Pending outgoing bunches (buffered before flush)

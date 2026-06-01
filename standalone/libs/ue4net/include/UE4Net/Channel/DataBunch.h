@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <string>
 #include "UE4Net/CoreMinimal.h"
 #include "UE4Net/Serialization/BitReader.h"
 #include "UE4Net/Serialization/BitWriter.h"
@@ -25,6 +26,7 @@ enum class EChannelType : int32
 // Bunch header flags
 struct FBunchHeader
 {
+    bool bControl;
     bool bOpen;
     bool bClose;
     bool bDormant;       // Close dormancy (if bClose)
@@ -45,6 +47,11 @@ struct FBunchHeader
     bool bChNameIsValid;
     bool bChNameIsHardcoded;
     uint32 ChNameIndex;
+
+    // String-path FName fields (read when bChNameIsHardcoded == false).
+    // The wire carries an FString followed by a uint32 FName Number suffix.
+    std::string ChNameString;
+    uint32 ChNameNumber;
 };
 
 /**
@@ -99,6 +106,7 @@ public:
     EChannelType ChType;
     int32 ChSequence;
 
+    bool bControl;
     bool bOpen;
     bool bClose;
     bool bDormant;
@@ -109,6 +117,10 @@ public:
     bool bPartialFinal;
     bool bHasPackageMapExports;
     bool bHasMustBeMappedGUIDs;
+
+    // Wire channel name index (bHardcoded=1 path). Set by caller before WriteBunchHeader.
+    // This is the SIP-encoded FName index on the wire, not the in-memory FName comparison index.
+    uint32 ChNameIndex;
 
     // For reliable ordering
     FOutBunch* Next;

@@ -86,11 +86,18 @@ return !Writer.IsError();
 bool FNetPacketNotify::ReadHeader(FNotificationHeader& Data, FBitReader& Reader) const
 {
 uint32 PackedHeader = 0u;
+int64 PrePos = Reader.GetPosBits();
 Reader << PackedHeader;
 
 Data.Seq = SequenceNumberT((PackedHeader >> SeqShift) & SeqMask);
 Data.AckedSeq = SequenceNumberT((PackedHeader >> AckSeqShift) & SeqMask);
 Data.HistoryWordCount = (PackedHeader & HistoryWordCountMask) + 1;
+
+std::fprintf(stderr, "[ue4net]   ReadHeader: PackedHeader=0x%08X Seq=%u AckedSeq=%u HWC=%u "
+    "(bitsAtEntry=%lld bitsAfterPH=%lld)\n",
+    (unsigned)PackedHeader, (unsigned)Data.Seq.Get(), (unsigned)Data.AckedSeq.Get(),
+    (unsigned)Data.HistoryWordCount,
+    (long long)PrePos, (long long)Reader.GetPosBits());
 
 Data.History.Read(Reader, Data.HistoryWordCount);
 

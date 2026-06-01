@@ -135,7 +135,8 @@ bool FStatelessConnectHandlerComponent::CreateChallengePacket(FBitWriter& OutPac
     WriteFortniteMagicHeader(OutPacket);
     OutPacket.WriteBit(1);                          // HandshakeBit
     OutPacket.WriteBit(0);                          // RestartHandshakeBit
-    OutPacket.WriteBit(1);                          // SecretIdBit (using active secret)
+    // Match Fortnite handshake capture: initial challenge uses SecretIdBit=0.
+    OutPacket.WriteBit(0);                          // SecretIdBit
     OutPacket << Timestamp;                         // 64-bit double
     OutPacket.Serialize(Cookie, CookieByteSize);    // 20-byte cookie (SHA1)
     OutPacket.WriteBit(1);                          // Termination

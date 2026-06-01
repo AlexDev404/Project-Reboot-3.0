@@ -59,7 +59,7 @@ public:
         {
             SendFunc(Data, Count, RemoteAddr);
         }
-        // Don't call base - it does nothing useful and we already counted via SendFunc log
+        UNetConnection::LowLevelSend(Data, Count);
     }
 
 private:
